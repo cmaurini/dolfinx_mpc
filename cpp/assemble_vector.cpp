@@ -64,15 +64,8 @@ void modify_mpc_vec(
     const std::int32_t& local_index = flattened_slaves[slv_idx];
     const std::int32_t& master = flattened_masters[slv_idx];
     const T& coeff = flattened_coeffs[slv_idx];
-
-    for (std::int32_t i = 0; i < num_dofs; ++i)
-    {
-      for (int j = 0; j < bs; ++j)
-      {
-        b[master] += coeff * b_local_org[i * bs + j];
-        b_local[i * bs + j] = 0;
-      }
-    }
+    b[master] += coeff * b_local_org[local_index];
+    b_local[local_index] = 0;
   }
 }
 
