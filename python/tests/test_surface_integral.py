@@ -90,6 +90,13 @@ def test_surface_integrals():
     dolfinx.fem.apply_lifting(b, [a], [bcs])
     b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES,
                   mode=PETSc.ScatterMode.REVERSE)
+
+    # Check that C++ assembler gives the same result
+    with dolfinx.common.Timer("~Test: Vec C++"):
+        b_arr = dolfinx_mpc.assemble_vector_cpp(rhs, mpc)
+        b_arr.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
+    assert np.allclose(b_arr.array, b.array)
+
     dolfinx.fem.set_bc(b, bcs)
     solver.setOperators(A)
     uh = b.copy()

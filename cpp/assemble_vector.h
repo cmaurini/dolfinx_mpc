@@ -24,4 +24,15 @@ void assemble_vector(
     const std::shared_ptr<const dolfinx_mpc::MultiPointConstraint<double>>&
         mpc);
 
+/// Assemble a linear form into a vector
+/// @param[in] b The vector to be assembled. It will not be zeroed before
+/// assembly.
+/// @param[in] L The linear forms to assemble into b
+/// @param[in] mpc The multi-point constraint
+void assemble_vector(
+    xtl::span<std::complex<double>> b,
+    const dolfinx::fem::Form<std::complex<double>>& L,
+    const std::shared_ptr<
+        const dolfinx_mpc::MultiPointConstraint<std::complex<double>>>& mpc);
+
 } // namespace dolfinx_mpc

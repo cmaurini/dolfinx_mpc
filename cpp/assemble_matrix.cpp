@@ -496,8 +496,6 @@ void assemble_matrix_impl(
     mesh->topology_mutable().create_connectivity(tdim - 1, tdim);
     mesh->topology_mutable().create_entity_permutations();
 
-    const int facets_per_cell = dolfinx::mesh::cell_num_entities(
-        mesh->topology().cell_type(), tdim - 1);
     std::function<std::uint8_t(std::size_t)> get_perm;
     if (a.needs_facet_permutations())
     {

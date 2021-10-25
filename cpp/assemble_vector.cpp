@@ -224,7 +224,7 @@ void _assemble_vector(
     mesh->topology_mutable().create_entity_permutations();
     cell_info = xtl::span(mesh->topology().get_cell_permutation_info());
   }
-
+  // Assemble cell integral kernels
   if (L.num_integrals(dolfinx::fem::IntegralType::cell) > 0)
   {
     const auto fetch_cells = [&](const std::int32_t& entity) { return entity; };
@@ -259,6 +259,76 @@ void _assemble_vector(
           constants, cell_info, mpc, fetch_cells, assemble_local_cell_vector);
     }
   }
+
+  // Prepare permutations for exterior and interior facet integrals
+  if (L.num_integrals(dolfinx::fem::IntegralType::exterior_facet) > 0
+      or L.num_integrals(dolfinx::fem::IntegralType::interior_facet) > 0)
+  {
+    std::function<std::uint8_t(std::size_t)> get_perm;
+    if (L.needs_facet_permutations())
+    {
+      mesh->topology_mutable().create_connectivity(tdim - 1, tdim);
+      mesh->topology_mutable().create_entity_permutations();
+      const std::vector<std::uint8_t>& perms
+          = mesh->topology().get_facet_permutations();
+      get_perm = [&perms](std::size_t i) { return perms[i]; };
+    }
+    else
+      get_perm = [](std::size_t) { return 0; };
+
+    // Create lambda function fetching cell index from exterior facet entity
+    const auto fetch_cells_ext = [&](const std::pair<std::int32_t, int>& entity)
+    { return entity.first; };
+
+    // Get number of cells per facet to be able to get the facet permutation
+    const int tdim = mesh->topology().dim();
+    const int num_cell_facets = dolfinx::mesh::cell_num_entities(
+        mesh->topology().cell_type(), tdim - 1);
+
+    // Assemble exterior facet integral kernels
+    for (int i : L.integral_ids(dolfinx::fem::IntegralType::exterior_facet))
+    {
+      const auto& fn = L.kernel(dolfinx::fem::IntegralType::exterior_facet, i);
+
+      /// Assemble local exterior facet kernels into a vector
+      /// @param[in] be The local element vector
+      /// @param[in] entity The entity, given as a cell index and the local
+      /// index relative to the cell
+      const auto assemble_local_exterior_facet_vector
+          = [&](xtl::span<T> be, std::pair<std::int32_t, int> entity)
+      {
+        // Fetch the coordiantes of the cell
+        const std::int32_t cell = entity.first;
+        const int local_facet = entity.second;
+        const xtl::span<const std::int32_t> x_dofs = x_dofmap.links(cell);
+        const xt::xarray<double> coordinate_dofs(
+            xt::view(x_g, xt::keep(x_dofs), xt::all()));
+
+        std::uint8_t perm = get_perm(cell * num_cell_facets + local_facet);
+
+        // Tabulate tensor
+        std::fill(be.data(), be.data() + be.size(), 0);
+        fn(be.data(), coeffs.first.data() + cell * coeffs.second,
+           constants.data(), coordinate_dofs.data(), &local_facet, &perm);
+
+        // Apply any required transformations
+        dof_transform(be, cell_info, cell, 1);
+      };
+
+      // Assemble over all active cells
+      const std::vector<std::pair<std::int32_t, int>>& active_facets
+          = L.exterior_facet_domains(i);
+      _assemble_entities_impl<T, std::pair<std::int32_t, int>>(
+          b, *mesh, active_facets, dofs, bs, coeffs.first, coeffs.second,
+          constants, cell_info, mpc, fetch_cells_ext,
+          assemble_local_exterior_facet_vector);
+    }
+    if (L.num_integrals(dolfinx::fem::IntegralType::interior_facet) > 0)
+    {
+      throw std::runtime_error(
+          "Interior facet integrals currently not supported");
+    }
+  }
 }
 } // namespace
 //-----------------------------------------------------------------------------
@@ -268,5 +338,14 @@ void dolfinx_mpc::assemble_vector(
     const std::shared_ptr<const dolfinx_mpc::MultiPointConstraint<double>>& mpc)
 {
   _assemble_vector<double>(b, L, mpc);
+}
+
+void dolfinx_mpc::assemble_vector(
+    xtl::span<std::complex<double>> b,
+    const dolfinx::fem::Form<std::complex<double>>& L,
+    const std::shared_ptr<
+        const dolfinx_mpc::MultiPointConstraint<std::complex<double>>>& mpc)
+{
+  _assemble_vector<std::complex<double>>(b, L, mpc);
 }
 //-----------------------------------------------------------------------------

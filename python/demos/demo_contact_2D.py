@@ -121,6 +121,15 @@ def demo_stacked_cubes(outfile, theta, gmsh=True, quad=False, compare=False, res
         A = dolfinx_mpc.assemble_matrix(a, mpc, bcs=bcs)
         b = dolfinx_mpc.assemble_vector(rhs, mpc)
 
+    with dolfinx.common.Timer("~Test: Vec Python"):
+        b = dolfinx_mpc.assemble_vector(rhs, mpc)
+
+     # Check that C++ assembler gives the same result
+    with dolfinx.common.Timer("~Test: Vec C++"):
+        b_arr = dolfinx_mpc.assemble_vector_cpp(rhs, mpc)
+        b_arr.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
+    assert np.allclose(b_arr.array, b.array)
+
     fem.apply_lifting(b, [a], [bcs])
     b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     fem.set_bc(b, bcs)
