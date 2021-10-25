@@ -152,6 +152,7 @@ target_sources(dolfinx_mpc PRIVATE
 ${CMAKE_CURRENT_SOURCE_DIR}/SlipConstraint.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ContactConstraint.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/assemble_matrix.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/assemble_vector.cpp
 )
 
