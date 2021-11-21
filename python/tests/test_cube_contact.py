@@ -277,7 +277,7 @@ def test_cube_contact(generate_hex_boxes, nonslip, get_assemblers):  # noqa: F81
     # and numpy solvers to get reference values
     dolfinx_mpc.utils.log_info("Solving reference problem with global matrix (using numpy)")
 
-    with dolfinx.common.Timer("~TEST: Assemble bilnear form (unconstrained)"):
+    with dolfinx.common.Timer("~TEST: Assemble bilinear form (unconstrained)"):
         A_org = fem.assemble_matrix(a, bcs)
         A_org.assemble()
 
