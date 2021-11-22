@@ -322,8 +322,7 @@ void _apply_lifting(
 
         // Tabulate tensor
         std::fill(Ae.data(), Ae.data() + Ae.size(), 0);
-        kernel(Ae.data(),
-               coefficients.first.data() + index * coefficients.second,
+        kernel(Ae.data(), coeffs.first.data() + index * coeffs.second,
                constants.data(), coordinate_dofs.data(), &local_facet, &perm);
         dof_transform(Ae, cell_info, cell, num_cols);
         dof_transform_to_transpose(Ae, cell_info, cell, num_rows);
