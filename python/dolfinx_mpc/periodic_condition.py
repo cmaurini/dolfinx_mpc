@@ -236,5 +236,5 @@ def _create_periodic_condition(V: _fem.FunctionSpace, slave_blocks: np.ndarray,
         offsets.append(len(masters))
 
     return (np.asarray(slaves, dtype=np.int32), np.asarray(masters, dtype=np.int64),
-            np.asarray(coeffs, dtype=PETSc.ScalarType), np.asarray(owners, dtype=np.int32),
+            np.asarray(coeffs, dtype=_PETSc.ScalarType), np.asarray(owners, dtype=np.int32),
             np.asarray(offsets, dtype=np.int32))
