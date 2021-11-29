@@ -86,17 +86,17 @@ def facet_normal_approximation(V, mt, mt_id, tangent=False):
     u_0.vector.set(0)
 
     bc_deac = _fem.DirichletBC(u_0, deac_blocks)
-    A = _cpp.fem.la.create_matrix(comm, pattern)
+    A = _cpp.la.create_matrix(comm, pattern)
     A.zeroEntries()
 
     # Assemble the matrix with all entries
     form_coeffs = _cpp.fem.pack_coefficients(cpp_form)
-    form_consts = _cpp.fem.fem.pack_constants(cpp_form)
+    form_consts = _cpp.fem.pack_constants(cpp_form)
     _cpp.fem.assemble_matrix_petsc(A, cpp_form, form_consts, form_coeffs, [bc_deac._cpp_object])
     if cpp_form.function_spaces[0].id == cpp_form.function_spaces[1].id:
         A.assemblyBegin(PETSc.Mat.AssemblyType.FLUSH)
         A.assemblyEnd(PETSc.Mat.AssemblyType.FLUSH)
-        _cpp.fem.fem.insert_diagonal(A, cpp_form.function_spaces[0], [bc_deac._cpp_object], 1.0)
+        _cpp.fem.insert_diagonal(A, cpp_form.function_spaces[0], [bc_deac._cpp_object], 1.0)
     A.assemble()
 
     b = _fem.assemble_vector(L)
