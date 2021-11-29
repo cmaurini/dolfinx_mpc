@@ -24,17 +24,17 @@ from time import perf_counter
 import h5py
 import numpy as np
 from dolfinx.common import Timer, TimingType, list_timings
-from dolfinx.fem import (DirichletBC, Function, FunctionSpace,
-                         locate_dofs_geometrical, set_bc, apply_lifting, assemble_matrix,
-                         assemble_vector)
+from dolfinx.fem import (DirichletBC, Function, FunctionSpace, apply_lifting,
+                         assemble_matrix, assemble_vector,
+                         locate_dofs_geometrical, set_bc)
 from dolfinx.generation import UnitCubeMesh
 from dolfinx.io import XDMFFile
+from dolfinx.log import LogLevel, log, set_log_level
 from dolfinx.mesh import CellType, refine
 from mpi4py import MPI
 from petsc4py import PETSc
-from ufl import (SpatialCoordinate, TestFunction, TrialFunction, dx, grad,
-                 inner, sin, pi, exp)
-from dolfinx.log import LogLevel, log, set_log_level
+from ufl import (SpatialCoordinate, TestFunction, TrialFunction, dx, exp, grad,
+                 inner, pi, sin)
 
 
 def reference_periodic(tetra: bool, r_lvl: int = 0, out_hdf5: h5py.File = None,
