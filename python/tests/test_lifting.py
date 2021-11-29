@@ -94,7 +94,7 @@ def test_lifting(get_assemblers):  # noqa: F811
         xdmf.write_mesh(mesh)
         xdmf.write_function(u_out)
     root = 0
-    comm = mesh.mpi_comm()
+    comm = mesh.comm
     with dolfinx.common.Timer("~TEST: Compare"):
 
         dolfinx_mpc.utils.compare_MPC_LHS(A_org, A, mpc, root=root)

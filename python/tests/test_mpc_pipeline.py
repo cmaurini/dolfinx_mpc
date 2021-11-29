@@ -78,7 +78,7 @@ def test_pipeline(master_point, get_assemblers):  # noqa: F811
     mpc.backsubstitution(uh)
 
     root = 0
-    comm = mesh.mpi_comm()
+    comm = mesh.comm
     with dolfinx.common.Timer("~TEST: Compare"):
 
         dolfinx_mpc.utils.compare_MPC_LHS(A_org, A, mpc, root=root)
@@ -149,7 +149,7 @@ def test_linearproblem(master_point):
         uh = problem.solve()
 
     root = 0
-    comm = mesh.mpi_comm()
+    comm = mesh.comm
     with dolfinx.common.Timer("~TEST: Compare"):
         dolfinx_mpc.utils.compare_MPC_LHS(A_org, problem._A, mpc, root=root)
         dolfinx_mpc.utils.compare_MPC_RHS(L_org, problem._b, mpc, root=root)

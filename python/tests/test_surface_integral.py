@@ -120,7 +120,7 @@ def test_surface_integrals(get_assemblers):  # noqa: F811
     dolfinx.fem.set_bc(L_org, bcs)
 
     root = 0
-    comm = mesh.mpi_comm()
+    comm = mesh.comm
     with dolfinx.common.Timer("~TEST: Compare"):
         dolfinx_mpc.utils.compare_MPC_LHS(A_org, A, mpc, root=root)
         dolfinx_mpc.utils.compare_MPC_RHS(L_org, b, mpc, root=root)
@@ -202,7 +202,7 @@ def test_surface_integral_dependency(get_assemblers):  # noqa: F811
     L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
 
     root = 0
-    comm = mesh.mpi_comm()
+    comm = mesh.comm
     with dolfinx.common.Timer("~TEST: Compare"):
         dolfinx_mpc.utils.compare_MPC_LHS(A_org, A, mpc, root=root)
         dolfinx_mpc.utils.compare_MPC_RHS(L_org, b, mpc, root=root)

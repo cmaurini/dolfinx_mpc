@@ -97,7 +97,7 @@ def test_cell_domains(get_assemblers):  # noqa: F811
     mpc.backsubstitution(uh)
 
     root = 0
-    comm = mesh.mpi_comm()
+    comm = mesh.comm
     with dolfinx.common.Timer("~TEST: Compare"):
         dolfinx_mpc.utils.compare_MPC_LHS(A_org, A, mpc, root=root)
         dolfinx_mpc.utils.compare_MPC_RHS(L_org, b, mpc, root=root)

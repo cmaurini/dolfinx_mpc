@@ -176,7 +176,7 @@ b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
 dolfinx.fem.assemble.set_bc(b, bcs)
 
 # ---------------------- Solve variational problem -----------------------
-ksp = PETSc.KSP().create(mesh.mpi_comm())
+ksp = PETSc.KSP().create(mesh.comm)
 ksp.setOperators(A)
 ksp.setType("preonly")
 ksp.getPC().setType("lu")

@@ -49,7 +49,7 @@ def test_mpc_assembly(master_point, degree, celltype, get_assemblers):  # noqa: 
     L_org = dolfinx.fem.assemble_vector(rhs)
     L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     root = 0
-    comm = mesh.mpi_comm()
+    comm = mesh.comm
     with dolfinx.common.Timer("~TEST: Compare"):
         dolfinx_mpc.utils.compare_MPC_RHS(L_org, b, mpc, root=root)
 

@@ -91,7 +91,7 @@ def assemble_matrix(form: ufl.form.Form, constraint: MultiPointConstraint,
         form_compiler_parameters["scalar_type"] = "double _Complex"
 
     # Generate ufc_form
-    ufc_form, _, _ = dolfinx.jit.ffcx_jit(V.mesh.mpi_comm(), form,
+    ufc_form, _, _ = dolfinx.jit.ffcx_jit(V.mesh.comm, form,
                                           form_compiler_parameters=form_compiler_parameters,
                                           jit_parameters=jit_parameters)
 
@@ -108,7 +108,7 @@ def assemble_matrix(form: ufl.form.Form, constraint: MultiPointConstraint,
 
         pattern = constraint.create_sparsity_pattern(cpp_form)
         pattern.assemble()
-        A = dolfinx.cpp.la.create_matrix(V.mesh.mpi_comm(), pattern)
+        A = dolfinx.cpp.la.create_matrix(V.mesh.comm, pattern)
     A.zeroEntries()
 
     # Assemble the matrix with all entries

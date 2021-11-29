@@ -46,7 +46,7 @@ def _create_periodic_condition(V: dolfinx.FunctionSpace, slave_blocks: np.ndarra
     ghost_owners = V.dofmap.index_map.ghost_owner_rank()
     imap = V.dofmap.index_map
     x = V.tabulate_dof_coordinates()
-    comm = V.mesh.mpi_comm()
+    comm = V.mesh.comm
 
     # Filter out Dirichlet BC dofs
     bc_dofs = []

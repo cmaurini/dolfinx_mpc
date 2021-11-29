@@ -44,7 +44,7 @@ def rotation_matrix(axis, angle):
 
 def facet_normal_approximation(V, mt, mt_id, tangent=False):
     timer = dolfinx.common.Timer("~MPC: Facet normal projection")
-    comm = V.mesh.mpi_comm()
+    comm = V.mesh.comm
     n = ufl.FacetNormal(V.mesh)
     nh = dolfinx.Function(V)
     u, v = ufl.TrialFunction(V), ufl.TestFunction(V)

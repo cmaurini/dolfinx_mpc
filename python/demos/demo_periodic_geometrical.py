@@ -138,7 +138,7 @@ u_.name = "u_unconstrained"
 outfile.write_function(u_)
 
 root = 0
-comm = mesh.mpi_comm()
+comm = mesh.comm
 with dolfinx.common.Timer("~Demo: Verification"):
     dolfinx_mpc.utils.compare_MPC_LHS(A_org, problem._A, mpc, root=root)
     dolfinx_mpc.utils.compare_MPC_RHS(L_org, problem._b, mpc, root=root)

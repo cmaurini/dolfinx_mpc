@@ -83,7 +83,7 @@ def assemble_vector(form: ufl.form.Form, constraint: MultiPointConstraint, b: PE
         form_compiler_parameters["scalar_type"] = "double _Complex"
 
     # Compile ufc form for Python assembly
-    ufc_form, _, _ = dolfinx.jit.ffcx_jit(V.mesh.mpi_comm(), form,
+    ufc_form, _, _ = dolfinx.jit.ffcx_jit(V.mesh.comm, form,
                                           form_compiler_parameters=form_compiler_parameters,
                                           jit_parameters=jit_parameters)
 
