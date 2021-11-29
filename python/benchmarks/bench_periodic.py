@@ -12,18 +12,13 @@
 # SPDX-License-Identifier:    MIT
 
 
-from dolfinx.mesh import refine
-import ufl
-import dolfinx.log
-import dolfinx.io
-import dolfinx.common
-import dolfinx
-import time
 import sys
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 
+
 import h5py
 import numpy as np
+
 from dolfinx.common import Timer, TimingType, list_timings
 from dolfinx.fem import (DirichletBC, Function, FunctionSpace,
                          locate_dofs_geometrical, set_bc)
@@ -35,8 +30,8 @@ from dolfinx_mpc import (MultiPointConstraint, apply_lifting, assemble_matrix,
 from dolfinx_mpc.utils import log_info
 from mpi4py import MPI
 from petsc4py import PETSc
-from ufl import (SpatialCoordinate, TestFunction, TrialFunction, dx, grad,
-                 inner, sin, pi, exp)
+from ufl import (SpatialCoordinate, TestFunction, TrialFunction, dx, exp, grad,
+                 inner, pi, sin)
 
 
 def demo_periodic3D(tetra, out_xdmf=None, r_lvl=0, out_hdf5=None,
@@ -143,34 +138,32 @@ def demo_periodic3D(tetra, out_xdmf=None, r_lvl=0, out_hdf5=None,
 
     # Solve linear problem
     log_info(f"Run {r_lvl}: Solving")
+    solver = PETSc.KSP().create(MPI.COMM_WORLD)
     with Timer("~Periodic: Solve") as timer:
         # Create solver, set operator and options
         PETSc.Mat.setNearNullSpace(A, nullspace)
-        uh = b.copy()import argparse
-
-
-.COMM_WORLD)
+        uh = b.copy()
         solver.setFromOptions()
         solver.setOperators(A)
         solver.solve(b, uh)
-        uh.ghostUpdate(addv = PETSc.InsertMode.INSERT, mode = PETSc.ScatterMode.FORWARD)
+        uh.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
         mpc.backsubstitution(uh)
-        solver_time=timer.elapsed()
+        solver_time = timer.elapsed()
         if kspview:
             solver.view()
 
     # Output information to HDF5
-    it=solver.getIterationNumber()
-    num_dofs=V.dofmap.index_map.size_global * V.dofmap.index_map_bs
+    it = solver.getIterationNumber()
+    num_dofs = V.dofmap.index_map.size_global * V.dofmap.index_map_bs
     if out_hdf5 is not None:
-        d_set=out_hdf5.get("its")
-        d_set[r_lvl]=it
-        d_set=out_hdf5.get("num_dofs")
-        d_set[r_lvl]=num_dofs
-        d_set=out_hdf5.get("num_slaves")
-        d_set[r_lvl, MPI.COMM_WORLD.rank]=mpc.num_local_slaves
-        d_set=out_hdf5.get("solve_time")
-        d_set[r_lvl, MPI.COMM_WORLD.rank]=solver_time[0]
+        d_set = out_hdf5.get("its")
+        d_set[r_lvl] = it
+        d_set = out_hdf5.get("num_dofs")
+        d_set[r_lvl] = num_dofs
+        d_set = out_hdf5.get("num_slaves")
+        d_set[r_lvl, MPI.COMM_WORLD.rank] = mpc.num_local_slaves
+        d_set = out_hdf5.get("solve_time")
+        d_set[r_lvl, MPI.COMM_WORLD.rank] = solver_time[0]
 
     if MPI.COMM_WORLD.rank == 0:
         print(f"Rlvl {r_lvl}, Iterations {it}")
@@ -178,14 +171,14 @@ def demo_periodic3D(tetra, out_xdmf=None, r_lvl=0, out_hdf5=None,
     # Output solution to XDMF
     if xdmf:
         # Create function space with correct index map for MPC
-        u_h=Function(mpc.function_space)
+        u_h = Function(mpc.function_space)
         u_h.vector.setArray(uh.array)
 
         # Name formatting of functions
-        ext="tet" if tetra else "hex"
-        mesh.name=f"mesh_{ext}"
-        u_h.name=f"u_{ext}"
-        fname=f"results/bench_periodic3d_{r_lvl}_{ext}.xdmf"
+        ext = "tet" if tetra else "hex"
+        mesh.name = f"mesh_{ext}"
+        u_h.name = f"u_{ext}"
+        fname = f"results/bench_periodic3d_{r_lvl}_{ext}.xdmf"
         with XDMFFile(MPI.COMM_WORLD, fname, "w") as out_xdmf:
             out_xdmf.write_mesh(mesh)
             out_xdmf.write_function(u_h, 0.0, f"Xdmf/Domain/Grid[@Name='{mesh.name}'][1]")
@@ -193,49 +186,49 @@ def demo_periodic3D(tetra, out_xdmf=None, r_lvl=0, out_hdf5=None,
 
 if __name__ == "__main__":
     # Set Argparser defaults
-    parser=ArgumentParser(formatter_class = ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--nref", default = 1, type = np.int8, dest = "n_ref", help = "Number of spatial refinements")
-    parser.add_argument("--degree", default = 1, type = np.int8, dest = "degree", help = "CG Function space degree")
-    parser.add_argument('--xdmf', action = 'store_true', dest = "xdmf",
-                        help = "XDMF-output of function (Default false)")
-    parser.add_argument('--timings', action = 'store_true', dest = "timings", help = "List timings (Default false)")
-    parser.add_argument('--kspview', action = 'store_true', dest = "kspview", help = "View PETSc progress")
-    parser.add_argument("-o", default = 'periodic_output.hdf5', dest = "hdf5", help = "Name of HDF5 output file")
-    ct_parser=parser.add_mutually_exclusive_group(required = False)
-    ct_parser.add_argument('--tet', dest = 'tetra', action = 'store_true', help = "Tetrahedron elements")
-    ct_parser.add_argument('--hex', dest = 'tetra', action = 'store_false', help = "Hexahedron elements")
-    solver_parser=parser.add_mutually_exclusive_group(required = False)
-    solver_parser.add_argument('--boomeramg', dest = 'boomeramg', default = True,
-                               action = 'store_true', help = "Use BoomerAMG preconditioner (Default)")
-    solver_parser.add_argument('--gamg', dest = 'boomeramg', action = 'store_false',
-                               help = "Use PETSc GAMG preconditioner")
+    parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
+    parser.add_argument("--nref", default=1, type=np.int8, dest="n_ref", help="Number of spatial refinements")
+    parser.add_argument("--degree", default=1, type=np.int8, dest="degree", help="CG Function space degree")
+    parser.add_argument('--xdmf', action='store_true', dest="xdmf",
+                        help="XDMF-output of function (Default false)")
+    parser.add_argument('--timings', action='store_true', dest="timings", help="List timings (Default false)")
+    parser.add_argument('--kspview', action='store_true', dest="kspview", help="View PETSc progress")
+    parser.add_argument("-o", default='periodic_output.hdf5', dest="hdf5", help="Name of HDF5 output file")
+    ct_parser = parser.add_mutually_exclusive_group(required=False)
+    ct_parser.add_argument('--tet', dest='tetra', action='store_true', help="Tetrahedron elements")
+    ct_parser.add_argument('--hex', dest='tetra', action='store_false', help="Hexahedron elements")
+    solver_parser = parser.add_mutually_exclusive_group(required=False)
+    solver_parser.add_argument('--boomeramg', dest='boomeramg', default=True,
+                               action='store_true', help="Use BoomerAMG preconditioner (Default)")
+    solver_parser.add_argument('--gamg', dest='boomeramg', action='store_false',
+                               help="Use PETSc GAMG preconditioner")
 
-    args=parser.parse_args()
-    thismodule=sys.modules[__name__]
-    n_ref=timings=boomeramg=kspview=degree=hdf5=xdmf=tetra=None
+    args = parser.parse_args()
+    thismodule = sys.modules[__name__]
+    n_ref = timings = boomeramg = kspview = degree = hdf5 = xdmf = tetra = None
 
     for key in vars(args):
         setattr(thismodule, key, getattr(args, key))
 
-    N=n_ref + 1
+    N = n_ref + 1
 
     # Prepare output HDF5 file
-    h5f=h5py.File(hdf5, 'w', driver = 'mpio', comm = MPI.COMM_WORLD)
-    h5f.create_dataset("its", (N,), dtype = np.int32)
-    h5f.create_dataset("num_dofs", (N,), dtype = np.int32)
-    h5f.create_dataset("num_slaves", (N, MPI.COMM_WORLD.size), dtype = np.int32)
-    sd=h5f.create_dataset("solve_time", (N, MPI.COMM_WORLD.size), dtype = np.float64)
-    solver="BoomerAMG" if boomeramg else "GAMG"
-    ct="Tet" if tetra else "Hex"
-    sd.attrs["solver"]=np.string_(solver)
-    sd.attrs["degree"]=np.string_(str(int(degree)))
-    sd.attrs["ct"]=np.string_(ct)
+    h5f = h5py.File(hdf5, 'w', driver='mpio', comm=MPI.COMM_WORLD)
+    h5f.create_dataset("its", (N,), dtype=np.int32)
+    h5f.create_dataset("num_dofs", (N,), dtype=np.int32)
+    h5f.create_dataset("num_slaves", (N, MPI.COMM_WORLD.size), dtype=np.int32)
+    sd = h5f.create_dataset("solve_time", (N, MPI.COMM_WORLD.size), dtype=np.float64)
+    solver = "BoomerAMG" if boomeramg else "GAMG"
+    ct = "Tet" if tetra else "Hex"
+    sd.attrs["solver"] = np.string_(solver)
+    sd.attrs["degree"] = np.string_(str(int(degree)))
+    sd.attrs["ct"] = np.string_(ct)
 
     # Loop over refinements
     for i in range(N):
         log_info(f"Run {i} in progress")
-        demo_periodic3D(tetra, r_lvl = i, out_hdf5 = h5f, xdmf = xdmf,
-                        boomeramg = boomeramg, kspview = kspview, degree = int(degree))
+        demo_periodic3D(tetra, r_lvl=i, out_hdf5=h5f, xdmf=xdmf,
+                        boomeramg=boomeramg, kspview=kspview, degree=int(degree))
 
         # List_timings
         if timings and i == N - 1:

@@ -25,8 +25,8 @@ from ufl import (Identity, SpatialCoordinate, TestFunction, TrialFunction,
                  as_vector, ds, dx, grad, inner, sym, tr)
 
 
-def bench_elasticity_edge(tetra: bool = True, r_lvl: int = 0, out_hdf5=None, xdmf: bool = False, boomeramg: bool = False,
-                          kspview: bool = False, degree: int = 1, info: bool = False):
+def bench_elasticity_edge(tetra: bool = True, r_lvl: int = 0, out_hdf5=None, xdmf: bool = False,
+                          boomeramg: bool = False, kspview: bool = False, degree: int = 1, info: bool = False):
     N = 3
     for i in range(r_lvl):
         N *= 2

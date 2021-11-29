@@ -47,7 +47,7 @@ class MultiPointConstraint():
         self.finalized = False
 
     def add_constraint(self, V: _fem.FunctionSpace, slaves_: "numpy.ndarray[numpy.int32]",
-                       masters_: "numpy.ndarray[numpy.int64]", coeffs_: "numpy.ndarray[PETSc.ScalarType]",
+                       masters_: "numpy.ndarray[numpy.int64]", coeffs_: "numpy.ndarray[_PETSc.ScalarType]",
                        owners_: "numpy.ndarray[numpy.int32]", offsets_: "numpy.ndarray[numpy.int32]"):
         """
         Add new constraint given by numpy arrays.

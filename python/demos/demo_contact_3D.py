@@ -14,7 +14,7 @@ from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 import dolfinx.fem as fem
 import numpy as np
 import scipy.sparse.linalg
-from dolfinx.common import Timer, TimingType, list_timings, timing
+from dolfinx.common import Timer, TimingType, list_timings
 from dolfinx.mesh import CellType
 from dolfinx.io import XDMFFile
 from dolfinx_mpc import (MultiPointConstraint, apply_lifting, assemble_matrix,

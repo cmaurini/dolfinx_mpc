@@ -16,7 +16,7 @@
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 
 import numpy as np
-from dolfinx.common import Timer, TimingType, list_timings, timing
+from dolfinx.common import Timer, TimingType, list_timings
 from dolfinx.fem import (Constant, DirichletBC, Function, VectorFunctionSpace,
                          locate_dofs_geometrical, set_bc)
 
