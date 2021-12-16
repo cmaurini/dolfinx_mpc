@@ -113,7 +113,7 @@ def demo_stacked_cubes(outfile, theta, gmsh: bool = False, ct: CellType = CellTy
     # NOTE: Traction deactivated until we have a way of fixing nullspace
     ds = Measure("ds", domain=mesh, subdomain_data=mt, subdomain_id=3)
     rhs = inner(fem.Constant(mesh, PETSc.ScalarType((0, 0, 0))), v) * dx
-    + inner(g, v) * ds
+    # + inner(g, v) * ds
 
     mpc = MultiPointConstraint(V)
     if noslip:
