@@ -89,7 +89,7 @@ mpc_data compute_master_contributions(
   assert(num_slaves_local == (std::size_t)verified_collisions.num_nodes());
   std::vector<xt::xtensor<PetscScalar, 2>> basis_values(num_slaves_local);
 
-  for (std::int32_t i = 0; i < num_slaves_local; ++i)
+  for (std::size_t i = 0; i < num_slaves_local; ++i)
   {
     auto verified_cell = verified_collisions.links(i);
     if (!verified_cell.empty())
@@ -126,10 +126,10 @@ mpc_data compute_master_contributions(
   std::vector<std::int32_t> ghost_owners = imap->ghost_owner_rank();
   // Reuse num_masters_local for insertion
   std::fill(num_masters_local.begin(), num_masters_local.end(), 0);
-  for (std::int32_t i = 0; i < num_slaves_local; ++i)
+  for (std::size_t i = 0; i < num_slaves_local; ++i)
   {
     auto verified_cell = verified_collisions.links(i);
-    if (verified_cell.size() == 0)
+    if (verified_cell.empty())
       continue;
     auto cell_blocks = V->dofmap()->cell_dofs(verified_cell[0]);
     std::vector<std::int64_t> global_master_blocks(cell_blocks.size());
@@ -1321,7 +1321,7 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
   MPI_Comm_size(comm, &mpi_size);
   if (mpi_size == 1)
   {
-    assert(blocks_wo_local_collision.size() == 0);
+    assert(blocks_wo_local_collision.empty());
     std::vector<std::int64_t> masters_out;
     std::vector<PetscScalar> coeffs_out;
     std::vector<std::int32_t> offsets_out = {0};
@@ -1680,7 +1680,7 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
         std::int32_t local_slave = local_block * block_size + k;
 
         // Skip if already found on other incoming processor
-        if (local_masters[local_slave].size() == 0)
+        if (local_masters[local_slave].empty())
         {
           std::vector<std::int64_t> masters_(
               remote_colliding_masters.begin() + disp_inc_masters[i]
