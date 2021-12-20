@@ -90,11 +90,11 @@ jobs:
       - name: Install DOLFINx-MPC (Python)
         run: CXX_FLAGS="${MPC_CMAKE_CXX_FLAGS}" python3 -m pip -v install python/
 
-      - name: Run coverage report
+      - name: Run coverage report (with 4 process to hit all mpi special handling)
         run: |
           pip3 install pytest-cov
-          pytest -v  --cov=dolfinx_mpc --cov-report=xml --cov-report=html python/tests
-
+          mpirun -n  4 pytest -v  --cov-config=.coveragerc --cov=dolfinx_mpc --cov-append --cov-report=term-missing  --cov-report=xml --cov-report=html python/tests
+      
       - uses: actions/upload-artifact@v2
         with:
           name: code-coverage
