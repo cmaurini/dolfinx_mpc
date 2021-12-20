@@ -94,7 +94,7 @@ jobs:
         run: |
           pip3 install pytest-cov
           mpirun -n  4 pytest -v  --cov-config=.coveragerc --cov=dolfinx_mpc --cov-append --cov-report=term-missing  --cov-report=xml --cov-report=html python/tests
-      
+
       - uses: actions/upload-artifact@v2
         with:
           name: code-coverage
