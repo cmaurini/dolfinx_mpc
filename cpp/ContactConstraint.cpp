@@ -372,7 +372,7 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
     local_slave_blocks.reserve(slave_dofs.size());
     std::for_each(slave_dofs.begin(), slave_dofs.end(),
                   [&local_slave_blocks, &ghost_slave_blocks, bs = block_size,
-                   sl = size_local](std::int32_t& dof)
+                   sl = size_local](const std::int32_t dof)
                   {
                     std::div_t div = std::div(dof, bs);
                     if (div.quot < sl)
@@ -396,10 +396,10 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
   // it as slave dofs to avoid zero division in constraint
   std::vector<std::int32_t> dofs(block_size);
   tcb::span<const PetscScalar> normal_array = nh->x()->array();
-  const auto largest_normal_component =
-      [&dofs, block_size, &normal_array, gdim](
-          const std::int32_t block,
-          xt::xtensor_fixed<PetscScalar, xt::xshape<3>>& normal) -> std::int32_t
+  const auto largest_normal_component
+      = [&dofs, block_size, &normal_array,
+         gdim](const std::int32_t block,
+               xt::xtensor_fixed<PetscScalar, xt::xshape<3>>& normal)
   {
     std::iota(dofs.begin(), dofs.end(), block * block_size);
     for (std::int32_t j = 0; j < gdim; ++j)
@@ -417,7 +417,7 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
   for (std::size_t i = 0; i < local_slave_blocks.size(); ++i)
   {
     const std::int32_t slave = local_slave_blocks[i];
-    const std::int32_t block = largest_normal_component(slave, normal);
+    const auto block = largest_normal_component(slave, normal);
     local_slaves[i] = block_size * slave + block;
     local_rems[i] = block;
     xt::row(normals, i) = normal;
@@ -1134,14 +1134,15 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
   std::vector<std::int32_t> ghost_blocks;
 
   // Map slave blocks to arrays holding local bocks and ghost blocks
-  std::for_each(slave_blocks.begin(), slave_blocks.end(),
-                [size_local, &local_block, &ghost_blocks](std::int32_t& block)
-                {
-                  if (block < size_local)
-                    local_block.push_back(block);
-                  else
-                    ghost_blocks.push_back(block);
-                });
+  std::for_each(
+      slave_blocks.begin(), slave_blocks.end(),
+      [size_local, &local_block, &ghost_blocks](const std::int32_t block)
+      {
+        if (block < size_local)
+          local_block.push_back(block);
+        else
+          ghost_blocks.push_back(block);
+      });
 
   // Map local blocks to global indices
   std::vector<std::int64_t> local_block_as_glob(local_block.size());
@@ -1330,20 +1331,22 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
     // Flatten the maps to 1D arrays (assuming all slaves are local
     // slaves)
     std::vector<std::int32_t> slaves;
-    for (std::size_t i = 0; i < local_block.size(); ++i)
-    {
-      for (std::int32_t j = 0; j < tdim; ++j)
-      {
-        const std::int32_t slave = local_block[i] * block_size + j;
-
-        slaves.push_back(slave);
-        masters_out.insert(masters_out.end(), local_masters[slave].begin(),
-                           local_masters[slave].end());
-        coeffs_out.insert(coeffs_out.end(), local_coeffs[slave].begin(),
-                          local_coeffs[slave].end());
-        offsets_out.push_back(masters_out.size());
-      }
-    }
+    slaves.reserve(tdim * local_block.size());
+    std::for_each(
+        local_block.begin(), local_block.end(),
+        [block_size, tdim, &masters_out, &local_masters, &coeffs_out,
+         &local_coeffs, &offsets_out](const std::int32_t block)
+        {
+          for (std::int32_t j = 0; j < tdim; ++j)
+          {
+            const std::int32_t slave = block * block_size + j;
+            masters_out.insert(masters_out.end(), local_masters[slave].begin(),
+                               local_masters[slave].end());
+            coeffs_out.insert(coeffs_out.end(), local_coeffs[slave].begin(),
+                              local_coeffs[slave].end());
+            offsets_out.push_back(masters_out.size());
+          }
+        });
     std::vector<std::int32_t> owners(masters_out.size());
     std::fill(owners.begin(), owners.end(), 0);
     mpc.slaves = slaves;
@@ -1895,21 +1898,26 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
   owners_out.reserve(slaves.size());
   std::vector<std::int32_t> offsets = {0};
   offsets.reserve(slaves.size() + 1);
-  for (std::int32_t j = 0; j < tdim; ++j)
-  {
-    for (std::size_t i = 0; i < local_block.size(); ++i)
-    {
-      const std::int32_t slave = local_block[i] * block_size + j;
-      slaves.push_back(slave);
-      masters.insert(masters.end(), local_masters[slave].begin(),
-                     local_masters[slave].end());
-      coeffs_out.insert(coeffs_out.end(), local_coeffs[slave].begin(),
-                        local_coeffs[slave].end());
-      offsets.push_back(masters.size());
-      owners_out.insert(owners_out.end(), local_owners[slave].begin(),
-                        local_owners[slave].end());
-    }
-  }
+
+  std::for_each(
+      local_block.begin(), local_block.end(),
+      [block_size, tdim, &masters, &local_masters, &coeffs_out, &local_coeffs,
+       &owners_out, &local_owners, &offsets, &slaves](const std::int32_t block)
+      {
+        for (std::int32_t j = 0; j < tdim; ++j)
+        {
+          const std::int32_t slave = block * block_size + j;
+          slaves.push_back(slave);
+          masters.insert(masters.end(), local_masters[slave].begin(),
+                         local_masters[slave].end());
+          coeffs_out.insert(coeffs_out.end(), local_coeffs[slave].begin(),
+                            local_coeffs[slave].end());
+          offsets.push_back(masters.size());
+          owners_out.insert(owners_out.end(), local_owners[slave].begin(),
+                            local_owners[slave].end());
+        }
+      });
+
   // Extend local data with ghost entries
   const std::int32_t num_loc_slaves = slaves.size();
   const std::int32_t num_local_masters = masters.size();
