@@ -96,9 +96,9 @@ jobs:
           pytest -v  --cov --cov-report=xml --cov-report=html python/tests
 
       - uses: actions/upload-artifact@v2
-          with:
-            name: code-coverage
-            path: htmlcov
+        with:
+          name: code-coverage
+          path: htmlcov
 
       - name: Run sonar-scanner
         env:
