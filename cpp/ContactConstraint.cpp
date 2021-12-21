@@ -1736,8 +1736,8 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
                 {
                   const std::int32_t owner
                       = ghost_owners[slave / block_size - size_local];
-                  std::vector<int>::iterator it = std::find(
-                      src_ranks_ghost.begin(), src_ranks_ghost.end(), owner);
+                  const auto it = std::find(src_ranks_ghost.begin(),
+                                            src_ranks_ghost.end(), owner);
                   const auto index = std::distance(src_ranks_ghost.begin(), it);
                   inc_num_slaves[index]++;
                 });
@@ -1756,41 +1756,51 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
   std::map<std::int32_t, std::vector<std::int32_t>> proc_to_ghost_offsets;
   std::vector<std::int32_t> loc_block(1);
   std::vector<std::int64_t> glob_block(1);
-  for (std::size_t i = 0; i < local_blocks.size(); ++i)
-  {
-    for (std::int32_t j = 0; j < tdim; ++j)
-    {
-      const std::int32_t slave = local_blocks[i] * block_size + j;
-      const std::vector<std::int64_t>& masters_i = local_masters[slave];
-      const std::vector<PetscScalar>& coeffs_i = local_coeffs[slave];
-      const std::vector<std::int32_t>& owners_i = local_owners[slave];
-      const std::int32_t num_masters = (std::int32_t)masters_i.size();
-      std::set<int> ghost_procs = shared_indices[slave / block_size];
-      for (auto proc : ghost_procs)
+
+  std::for_each(
+      local_blocks.begin(), local_blocks.end(),
+      [block_size, &local_masters, &local_coeffs, &local_owners,
+       &shared_indices, &dest_ranks_ghost, &loc_block, &glob_block,
+       &out_num_masters, &out_num_slaves, &imap, &proc_to_ghost,
+       &proc_to_ghost_masters, &proc_to_ghost_coeffs, &proc_to_ghost_owners,
+       &proc_to_ghost_offsets, tdim](const auto block)
       {
-        const auto it
-            = std::find(dest_ranks_ghost.begin(), dest_ranks_ghost.end(), proc);
-        std::int32_t index = std::distance(dest_ranks_ghost.begin(), it);
-        out_num_masters[index] += num_masters;
-        out_num_slaves[index]++;
-        // Map slaves to global dof to be recognized by recv proc
-        std::div_t div = std::div(slave, block_size);
-        loc_block[0] = div.quot;
-        imap->local_to_global(loc_block, glob_block);
-        glob_block[0] = glob_block[0] * block_size + div.rem;
-        proc_to_ghost[index].push_back(glob_block[0]);
-        // Add master data in process-wise fashion
-        proc_to_ghost_masters[index].insert(proc_to_ghost_masters[index].end(),
-                                            masters_i.begin(), masters_i.end());
-        proc_to_ghost_coeffs[index].insert(proc_to_ghost_coeffs[index].end(),
-                                           coeffs_i.begin(), coeffs_i.end());
-        proc_to_ghost_owners[index].insert(proc_to_ghost_owners[index].end(),
-                                           owners_i.begin(), owners_i.end());
-        proc_to_ghost_offsets[index].push_back(
-            proc_to_ghost_masters[index].size());
-      }
-    }
-  }
+        for (std::int32_t j = 0; j < tdim; ++j)
+        {
+          const std::int32_t slave = block * block_size + j;
+          const std::vector<std::int64_t>& masters_i = local_masters[slave];
+          const std::vector<PetscScalar>& coeffs_i = local_coeffs[slave];
+          const std::vector<std::int32_t>& owners_i = local_owners[slave];
+          const auto num_masters = (std::int32_t)masters_i.size();
+          std::set<int> ghost_procs = shared_indices[slave / block_size];
+          for (auto proc : ghost_procs)
+          {
+            const auto it = std::find(dest_ranks_ghost.begin(),
+                                      dest_ranks_ghost.end(), proc);
+            std::int32_t index = std::distance(dest_ranks_ghost.begin(), it);
+            out_num_masters[index] += num_masters;
+            out_num_slaves[index]++;
+            // Map slaves to global dof to be recognized by recv proc
+            std::div_t div = std::div(slave, block_size);
+            loc_block[0] = div.quot;
+            imap->local_to_global(loc_block, glob_block);
+            glob_block[0] = glob_block[0] * block_size + div.rem;
+            proc_to_ghost[index].push_back(glob_block[0]);
+            // Add master data in process-wise fashion
+            proc_to_ghost_masters[index].insert(
+                proc_to_ghost_masters[index].end(), masters_i.begin(),
+                masters_i.end());
+            proc_to_ghost_coeffs[index].insert(
+                proc_to_ghost_coeffs[index].end(), coeffs_i.begin(),
+                coeffs_i.end());
+            proc_to_ghost_owners[index].insert(
+                proc_to_ghost_owners[index].end(), owners_i.begin(),
+                owners_i.end());
+            proc_to_ghost_offsets[index].push_back(
+                proc_to_ghost_masters[index].size());
+          }
+        }
+      });
   // Flatten map of global slave ghost dofs to use alltoallv
   std::vector<std::int64_t> out_ghost_slaves;
   std::vector<std::int64_t> out_ghost_masters;
