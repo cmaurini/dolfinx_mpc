@@ -3,3 +3,10 @@
 [run]
 omit = */numba/*
 parallel = true
+source = dolfinx_mpc
+
+[html]
+directory= htmlcov
+
+[xml]
+output = coverage.xml
