@@ -119,9 +119,6 @@ def demo_stacked_cubes(outfile, theta, gmsh: bool = False, ct: CellType = CellTy
     else:
         with Timer("~Contact: Create facet normal approximation"):
             nh = create_normal_approximation(V, mt, 4)
-        with XDMFFile(MPI.COMM_WORLD, "results/nh.xdmf", "w") as xdmf:
-            xdmf.write_mesh(mesh)
-            xdmf.write_function(nh)
         with Timer("~Contact: Create contact constraint"):
             mpc.create_contact_slip_condition(mt, 4, 9, nh)
 
@@ -154,7 +151,6 @@ def demo_stacked_cubes(outfile, theta, gmsh: bool = False, ct: CellType = CellTy
     # opts["help"] = None # List all available options
     # opts["ksp_view"] = None # List progress of solver
     # Create functionspace and build near nullspace
-
     A.setNearNullSpace(null_space)
     solver = PETSc.KSP().create(mesh.comm)
     solver.setOperators(A)
