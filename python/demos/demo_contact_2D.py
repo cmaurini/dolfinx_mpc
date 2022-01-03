@@ -26,7 +26,7 @@ from dolfinx_mpc import (MultiPointConstraint, apply_lifting, assemble_matrix,
                          assemble_vector)
 from dolfinx_mpc.utils import (create_normal_approximation, log_info,
                                rigid_motions_nullspace, rotation_matrix, facet_normal_approximation,
-                               compare_MPC_LHS, compare_MPC_RHS, gather_PETScMatrix, gather_transformation_matrix,
+                               compare_mpc_lhs, compare_mpc_rhs, gather_PETScMatrix, gather_transformation_matrix,
                                gather_PETScVector)
 import scipy.sparse.linalg
 from mpi4py import MPI
@@ -191,8 +191,8 @@ def demo_stacked_cubes(outfile, theta, gmsh=True, quad=False, compare=False, res
 
     root = 0
     with Timer("~MPC: Verification"):
-        compare_MPC_LHS(A_org, A, mpc, root=root)
-        compare_MPC_RHS(L_org, b, mpc, root=root)
+        compare_mpc_lhs(A_org, A, mpc, root=root)
+        compare_mpc_rhs(L_org, b, mpc, root=root)
         # Gather LHS, RHS and solution on one process
         A_csr = gather_PETScMatrix(A_org, root=root)
         K = gather_transformation_matrix(mpc, root=root)

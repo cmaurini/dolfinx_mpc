@@ -18,7 +18,7 @@ from dolfinx.io import XDMFFile
 from dolfinx.mesh import CellType
 from dolfinx_mpc import (MultiPointConstraint, apply_lifting, assemble_matrix,
                          assemble_vector)
-from dolfinx_mpc.utils import (compare_MPC_LHS, compare_MPC_RHS,
+from dolfinx_mpc.utils import (compare_mpc_lhs, compare_mpc_rhs,
                                create_normal_approximation, gather_PETScMatrix,
                                gather_PETScVector,
                                gather_transformation_matrix, log_info,
@@ -199,8 +199,8 @@ def demo_stacked_cubes(outfile, theta, gmsh: bool = False, ct: CellType = CellTy
 
     root = 0
     with Timer("~~Contact: Compare LHS, RHS and solution"):
-        compare_MPC_LHS(A_org, A, mpc, root=root)
-        compare_MPC_RHS(L_org, b, mpc, root=root)
+        compare_mpc_lhs(A_org, A, mpc, root=root)
+        compare_mpc_rhs(L_org, b, mpc, root=root)
 
         # Gather LHS, RHS and solution on one process
         A_csr = gather_PETScMatrix(A_org, root=root)
