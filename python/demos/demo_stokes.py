@@ -168,8 +168,8 @@ ds = Measure("ds", domain=mesh, subdomain_data=mt, subdomain_id=1)
 a -= inner(outer(n, n) * dot(T(u, p, mu), n), v) * ds
 L += inner(g_tau, v) * ds
 
+# Solve linear problem
 petsc_options = {"ksp_type": "preonly", "pc_type": "lu", "pc_factor_solver_type": "mumps"}
-
 problem = LinearProblem(a, L, mpc, bcs=bcs, petsc_options=petsc_options)
 U = problem.solve()
 
