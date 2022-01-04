@@ -67,7 +67,7 @@ def demo_stacked_cubes(outfile, theta, gmsh: bool = False, ct: CellType = CellTy
     u_bc = np.array((0, ) * mesh.geometry.dim, dtype=PETSc.ScalarType)
     bc_bottom = fem.DirichletBC(u_bc, bottom_dofs, V)
 
-    g_vec = [0, 0, -4.25e-1]
+    g_vec = np.array([0, 0, -4.25e-1], dtype=PETSc.ScalarType)
     if not noslip:
         # Helper for orienting traction
         r_matrix = rotation_matrix([1 / np.sqrt(2), 1 / np.sqrt(2), 0], -theta)
