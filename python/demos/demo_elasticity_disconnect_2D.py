@@ -9,15 +9,14 @@
 
 import gmsh
 import numpy as np
-from dolfinx.common import Timer
 from dolfinx.fem import (Constant, DirichletBC, Function, FunctionSpace,
                          VectorFunctionSpace, locate_dofs_geometrical,
-                         locate_dofs_topological, set_bc)
+                         locate_dofs_topological)
 from dolfinx.io import XDMFFile
 from dolfinx.mesh import locate_entities_boundary
-from dolfinx_mpc import (MultiPointConstraint, LinearProblem)
-from dolfinx_mpc.utils import (create_point_to_point_constraint, gmsh_model_to_mesh,
-                               rigid_motions_nullspace)
+from dolfinx_mpc import LinearProblem, MultiPointConstraint
+from dolfinx_mpc.utils import (create_point_to_point_constraint,
+                               gmsh_model_to_mesh, rigid_motions_nullspace)
 from mpi4py import MPI
 from petsc4py import PETSc
 from ufl import (Identity, Measure, SpatialCoordinate, TestFunction,
