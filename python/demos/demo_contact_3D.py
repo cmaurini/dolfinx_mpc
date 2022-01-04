@@ -73,7 +73,7 @@ def demo_stacked_cubes(outfile, theta, gmsh: bool = False, ct: CellType = CellTy
         r_matrix = rotation_matrix([1 / np.sqrt(2), 1 / np.sqrt(2), 0], -theta)
 
         # Top boundary has a given deformation normal to the interface
-        g_vec = np.dot(r_matrix, [0, 0, -4.25e-1])
+        g_vec = np.dot(r_matrix, g_vec)
 
     top_facets = mt.indices[np.flatnonzero(mt.values == 3)]
     top_dofs = fem.locate_dofs_topological(V, fdim, top_facets)
