@@ -62,6 +62,10 @@ def periodic_relation(x):
     return out_x
 
 
+mpc_data = dolfinx_mpc.cpp.mpc.create_periodic_constraint(
+    V._cpp_object, periodic_boundary, periodic_relation, [bc._cpp_object], 1)
+exit()
+
 with Timer("~PERIODIC: Initialize MPC"):
     mpc = MultiPointConstraint(V)
     mpc.create_periodic_constraint_geometrical(V, periodic_boundary, periodic_relation, bcs)
