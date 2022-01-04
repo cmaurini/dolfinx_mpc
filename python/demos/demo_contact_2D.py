@@ -130,7 +130,7 @@ def demo_stacked_cubes(outfile, theta, gmsh=True, quad=False, compare=False, res
     # Solve Linear problem
     problem = LinearProblem(a, rhs, mpc, bcs=bcs, petsc_options=petsc_options)
 
-   # Build near nullspace
+    # Build near nullspace
     null_space = rigid_motions_nullspace(mpc.function_space)
     problem.A.setNearNullSpace(null_space)
     u_h = problem.solve()
