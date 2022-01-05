@@ -254,8 +254,8 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   owners.reserve(slave_blocks.size() * bs);
   std::vector<T> coeffs;
   coeffs.reserve(slave_blocks.size() * bs);
-  std::vector<std::int32_t> offsets = {0};
-  offsets.reserve(slave_blocks.size() * bs);
+  std::vector<std::int32_t> num_masters_per_slave = {0};
+  num_masters_per_slave.reserve(slave_blocks.size() * bs);
 
   // Temporary array holding global indices
   std::vector<std::int64_t> global_blocks;
@@ -285,6 +285,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       for (int sb = 0; sb < bs; sb++)
       {
         slaves.push_back(local_blocks[i] * bs + sb);
+        int num_masters = 0;
         for (std::size_t j = 0; j < cell_blocks.size(); j++)
         {
           for (int b = 0; b < bs; b++)
@@ -292,6 +293,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
             const double val = scale * basis_values(j * bs + b, sb);
             if (std::abs(val) > 1e-16)
             {
+              num_masters++;
               masters.push_back(global_blocks[j] * bs + b);
               coeffs.push_back(val);
               if (cell_blocks[j] < size_local)
@@ -301,7 +303,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
             }
           }
         }
-        offsets.push_back(masters.size());
+        num_masters_per_slave.push_back(num_masters);
       }
     }
     else
@@ -371,9 +373,13 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   std::partial_sum(num_recv_slaves.begin(), num_recv_slaves.end(),
                    disp_in.begin() + 1);
 
+  // Array holding all dofs (index local to process) for coordinates sent out
+  std::vector<std::int32_t> searching_dofs(bs * disp_out.back());
+
   // Communicate coordinates of slave blocks
   std::vector<std::int32_t> out_placement(outdegree, 0);
   xt::xtensor<double, 2> coords_out({(std::size_t)disp_out.back(), 3});
+
   for (int i = 0; i < local_cell_collisions.num_nodes(); i++)
   {
     auto local_cells = local_cell_collisions.links(i);
@@ -386,8 +392,11 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
         auto it = std::find(s_to_m_ranks.begin(), s_to_m_ranks.end(), proc);
         assert(it != s_to_m_ranks.end());
         auto dist = std::distance(s_to_m_ranks.begin(), it);
-        xt::row(coords_out, disp_out[dist] + out_placement[dist]++)
-            = xt::row(mapped_T, i);
+        const std::int32_t insert_location
+            = disp_out[dist] + out_placement[dist]++;
+        xt::row(coords_out, insert_location) = xt::row(mapped_T, i);
+        for (int b = 0; b < bs; b++)
+          searching_dofs[insert_location * bs + b] = local_blocks[i] * bs + b;
       }
     }
   }
@@ -425,8 +434,8 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   owners_remote.reserve(coords_recv.size());
   std::vector<T> coeffs_remote;
   coeffs_remote.reserve(coords_recv.size());
-  std::vector<std::int32_t> num_masters_per_slave;
-  num_masters_per_slave.reserve(bs * coords_recv.size() / 3);
+  std::vector<std::int32_t> num_masters_per_slave_remote;
+  num_masters_per_slave_remote.reserve(bs * coords_recv.size() / 3);
 
   // Compute local collisions with remote coordinates
   auto remote_bbox_collisions
@@ -449,7 +458,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       if (local_cells.empty())
       {
         for (int sb = 0; sb < bs; sb++)
-          num_masters_per_slave.push_back(0);
+          num_masters_per_slave_remote.push_back(0);
       }
       else
       {
@@ -486,7 +495,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
             }
           }
           r_masters += num_masters;
-          num_masters_per_slave.push_back(num_masters);
+          num_masters_per_slave_remote.push_back(num_masters);
         }
       }
     }
@@ -502,12 +511,28 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       m_to_s_weights.data(), MPI_INFO_NULL, false, &master_to_slave);
 
   // Send data back to owning process
-  dolfinx_mpc::recv_data test_data = dolfinx_mpc::send_master_data_to_owner(
+  dolfinx_mpc::recv_data recv_data = dolfinx_mpc::send_master_data_to_owner(
       master_to_slave, num_remote_masters, num_remote_slaves, num_out_slaves,
-      num_masters_per_slave, masters_remote, coeffs_remote, owners_remote);
+      num_masters_per_slave_remote, masters_remote, coeffs_remote,
+      owners_remote);
 
-  dolfinx_mpc::mpc_data a;
-  return a;
+  // Append found slaves/master pairs
+  append_master_data(recv_data, searching_dofs, slaves, masters, coeffs, owners,
+                     num_masters_per_slave, size_local, bs);
+
+  // FIXME: Distribute ghost data
+
+  // Compute offsets
+  std::vector<std::int32_t> offsets(num_masters_per_slave.size() + 1, 0);
+  std::partial_sum(num_masters_per_slave.begin(), num_masters_per_slave.end(),
+                   offsets.begin() + 1);
+
+  dolfinx_mpc::mpc_data output;
+  output.offsets = offsets;
+  output.masters = masters;
+  output.coeffs = coeffs;
+  output.owners = owners;
+  return output;
 }
 
 } // namespace

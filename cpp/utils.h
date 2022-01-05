@@ -263,4 +263,65 @@ recv_data<T> send_master_data_to_owner(
   return output;
 }
 
+/// Append received slaves to arrays holding slave, master, coeffs and
+/// num_masters_per_slave received from other processes
+/// @param[in] in_data Structure holding incoming masters, coeffs, owners and
+/// number of masters per slave
+/// @param[in] local_slaves The slave dofs (local to process), where the ith
+/// entry corresponds to the ith entry of the vectors in in-data.
+/// @note local_slaves can have duplicates
+/// @param[in] masters Array to append the masters to
+/// @param[in] coeffs Array to append owner ranks to
+/// @param[in] owners Array to append owner ranks to
+/// @param[in] num_masters_per_slave Array to append num masters per slave to
+/// @param[in] size_local The local size of the index map
+/// @param[in] bs The block size of the index map
+template <typename T>
+void append_master_data(recv_data<T> in_data,
+                        const std::vector<std::int32_t>& local_slaves,
+                        std::vector<std::int32_t>& slaves,
+                        std::vector<std::int64_t>& masters,
+                        std::vector<T>& coeffs,
+                        std::vector<std::int32_t>& owners,
+                        std::vector<std::int32_t>& num_masters_per_slave,
+                        std::int32_t size_local, std::int32_t bs)
+{
+  std::vector<std::int8_t> slave_found(size_local * bs, false);
+  std::vector<std::int32_t>& m_per_slave = in_data.num_masters_per_slave;
+  std::vector<std::int64_t>& inc_masters = in_data.masters;
+  std::vector<T>& inc_coeffs = in_data.coeffs;
+  std::vector<std::int32_t>& inc_owners = in_data.owners;
+  assert(m_per_slave.size() == local_slaves.size());
+
+  // Compute accumulated position
+  std::vector<std::int32_t> disp_m(m_per_slave.size() + 1, 0);
+  std::partial_sum(m_per_slave.begin(), m_per_slave.end(), disp_m.begin() + 1);
+
+  // NOTE: outdegree is really in degree as we are using the reverse comm
+  for (std::size_t i = 0; i < m_per_slave.size(); i++)
+  {
+    // Only add slave to list if it hasn't been found on another proc and the
+    // number of incoming masters is nonzero
+    if (auto dof = local_slaves[i]; !slave_found[dof] && m_per_slave[i] > 0)
+    {
+      slaves.push_back(dof);
+      for (std::int32_t j = disp_m[i]; j < disp_m[i + 1]; j++)
+      {
+        masters.push_back(inc_masters[j]);
+        owners.push_back(inc_owners[j]);
+        coeffs.push_back(inc_coeffs[j]);
+      }
+      num_masters_per_slave.push_back(m_per_slave[i]);
+      slave_found[dof] = true;
+    }
+  }
+
+  // Check that all local blocks has found its master
+  [[maybe_unused]] const auto num_found
+      = std::accumulate(std::begin(slave_found), std::end(slave_found), 0.0);
+  [[maybe_unused]] const std::size_t num_unique
+      = std::set<std::int32_t>(local_slaves.begin(), local_slaves.end()).size();
+  assert(num_found == num_unique);
+};
+
 } // namespace dolfinx_mpc
