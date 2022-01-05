@@ -252,9 +252,11 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   masters.reserve(slave_blocks.size() * bs);
   std::vector<std::int32_t> owners;
   owners.reserve(slave_blocks.size() * bs);
-  std::vector<T> coeffs;
+  // FIXME: This should really be templated
+  // Requires changes all over the place for mpc_data
+  std::vector<PetscScalar> coeffs;
   coeffs.reserve(slave_blocks.size() * bs);
-  std::vector<std::int32_t> num_masters_per_slave = {0};
+  std::vector<std::int32_t> num_masters_per_slave;
   num_masters_per_slave.reserve(slave_blocks.size() * bs);
 
   // Temporary array holding global indices
@@ -432,7 +434,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   masters_remote.reserve(coords_recv.size());
   std::vector<std::int32_t> owners_remote;
   owners_remote.reserve(coords_recv.size());
-  std::vector<T> coeffs_remote;
+  std::vector<PetscScalar> coeffs_remote;
   coeffs_remote.reserve(coords_recv.size());
   std::vector<std::int32_t> num_masters_per_slave_remote;
   num_masters_per_slave_remote.reserve(bs * coords_recv.size() / 3);
@@ -511,14 +513,16 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       m_to_s_weights.data(), MPI_INFO_NULL, false, &master_to_slave);
 
   // Send data back to owning process
-  dolfinx_mpc::recv_data recv_data = dolfinx_mpc::send_master_data_to_owner(
-      master_to_slave, num_remote_masters, num_remote_slaves, num_out_slaves,
-      num_masters_per_slave_remote, masters_remote, coeffs_remote,
-      owners_remote);
+  dolfinx_mpc::recv_data recv_data
+      = dolfinx_mpc::send_master_data_to_owner<PetscScalar>(
+          master_to_slave, num_remote_masters, num_remote_slaves,
+          num_out_slaves, num_masters_per_slave_remote, masters_remote,
+          coeffs_remote, owners_remote);
 
   // Append found slaves/master pairs
-  append_master_data(recv_data, searching_dofs, slaves, masters, coeffs, owners,
-                     num_masters_per_slave, size_local, bs);
+  dolfinx_mpc::append_master_data<PetscScalar>(
+      recv_data, searching_dofs, slaves, masters, coeffs, owners,
+      num_masters_per_slave, size_local, bs);
 
   // FIXME: Distribute ghost data
 
@@ -532,6 +536,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   output.masters = masters;
   output.coeffs = coeffs;
   output.owners = owners;
+  output.slaves = slaves;
   return output;
 }
 
