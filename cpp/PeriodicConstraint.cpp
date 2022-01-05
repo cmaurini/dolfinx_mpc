@@ -188,12 +188,27 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   auto cell_map = mesh->topology().index_map(tdim);
   const int num_cells_local = cell_map->size_local();
   const int num_ghost_cells = cell_map->num_ghosts();
+
+  // Split blocks into owned and ghost entities
+  std::vector<std::int32_t> local_blocks;
+  local_blocks.reserve(slave_blocks.size());
+  std::vector<std::int32_t> ghost_blocks;
+  ghost_blocks.reserve(slave_blocks.size());
+  std::for_each(slave_blocks.begin(), slave_blocks.end(),
+                [&local_blocks, &ghost_blocks, size_local](auto block)
+                {
+                  if (block < size_local)
+                    local_blocks.push_back(block);
+                  else
+                    ghost_blocks.push_back(block);
+                });
+
   // Find one cell per degree of freedom to reduce size of tabulation
   std::vector<std::int32_t> slave_cells;
-  slave_cells.reserve(slave_blocks.size());
-  for (std::size_t i = 0; i < slave_blocks.size(); i++)
+  slave_cells.reserve(local_blocks.size());
+  for (std::size_t i = 0; i < local_blocks.size(); i++)
   {
-    const std::int32_t block = slave_blocks[i];
+    const std::int32_t block = local_blocks[i];
     for (int j = 0; j < num_cells_local + num_ghost_cells; j++)
     {
       auto dofs = dofmap->cell_dofs(j);
@@ -205,10 +220,10 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       }
     }
   }
-  assert(slave_cells.size() == slave_blocks.size());
+  assert(slave_cells.size() == local_blocks.size());
   // Tabulate dof coordinates for each dof
   xt::xtensor<double, 2> x
-      = tabulate_dof_coordinates(V, slave_blocks, slave_cells);
+      = tabulate_dof_coordinates(V, local_blocks, slave_cells);
 
   // Compute master coordinates
   auto mapped_x = relation(x);
@@ -269,7 +284,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       imap->local_to_global(cell_blocks, global_blocks);
       for (int sb = 0; sb < bs; sb++)
       {
-        slaves.push_back(slave_blocks[i] * bs + sb);
+        slaves.push_back(local_blocks[i] * bs + sb);
         for (std::size_t j = 0; j < cell_blocks.size(); j++)
         {
           for (int b = 0; b < bs; b++)
@@ -291,7 +306,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
     }
     else
     {
-      // Count number of incomming blocks from other processes
+      // Count number of incoming blocks from other processes
       auto procs = colliding_bbox_processes.links(i);
       for (auto proc : procs)
         off_process_counter[proc]++;
@@ -340,20 +355,143 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   assert(outdegree == (int)s_to_m_ranks.size());
 
   // Compute number of receiving slaves
-  std::vector<std::int32_t> num_slaves_recv(indegree);
+  std::vector<std::int32_t> num_recv_slaves(indegree);
   MPI_Neighbor_alltoall(
       num_out_slaves.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
-      num_slaves_recv.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
+      num_recv_slaves.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
       slave_to_master);
 
-  std::stringstream ss;
-  ss << rank << ": Send: " << xt::adapt(num_out_slaves)
-     << " Recv: " << xt::adapt(num_slaves_recv) << "\n";
-  std::cout << ss.str() << "\n";
   // Prepare data structures for sending information
   std::vector<int> disp_out(outdegree + 1, 0);
   std::partial_sum(num_out_slaves.begin(), num_out_slaves.end(),
                    disp_out.begin() + 1);
+
+  // Prepare data structures for receiving information
+  std::vector<int> disp_in(indegree + 1, 0);
+  std::partial_sum(num_recv_slaves.begin(), num_recv_slaves.end(),
+                   disp_in.begin() + 1);
+
+  // Communicate coordinates of slave blocks
+  std::vector<std::int32_t> out_placement(outdegree, 0);
+  xt::xtensor<double, 2> coords_out({(std::size_t)disp_out.back(), 3});
+  for (int i = 0; i < local_cell_collisions.num_nodes(); i++)
+  {
+    auto local_cells = local_cell_collisions.links(i);
+    if (local_cells.empty())
+    {
+      auto procs = colliding_bbox_processes.links(i);
+      for (auto proc : procs)
+      {
+        // Find position in neighborhood communicator
+        auto it = std::find(s_to_m_ranks.begin(), s_to_m_ranks.end(), proc);
+        assert(it != s_to_m_ranks.end());
+        auto dist = std::distance(s_to_m_ranks.begin(), it);
+        xt::row(coords_out, disp_out[dist] + out_placement[dist]++)
+            = xt::row(mapped_T, i);
+      }
+    }
+  }
+
+  // Communciate coordinates with other process
+  xt::xtensor<double, 2> coords_recv({(std::size_t)disp_in.back(), 3});
+
+  // Take into account that we send three values per slave
+  auto m_3 = [](auto& num) { num *= 3; };
+  std::for_each(disp_out.begin(), disp_out.end(), m_3);
+  std::for_each(num_out_slaves.begin(), num_out_slaves.end(), m_3);
+  std::for_each(disp_in.begin(), disp_in.end(), m_3);
+  std::for_each(num_recv_slaves.begin(), num_recv_slaves.end(), m_3);
+
+  // Communicate coordinates
+  MPI_Neighbor_alltoallv(coords_out.data(), num_out_slaves.data(),
+                         disp_out.data(), dolfinx::MPI::mpi_type<double>(),
+                         coords_recv.data(), num_recv_slaves.data(),
+                         disp_in.data(), dolfinx::MPI::mpi_type<double>(),
+                         slave_to_master);
+
+  // Reset in_displacements to be per block for later usage
+  auto d_3 = [](auto& num) { num /= 3; };
+  std::for_each(disp_in.begin(), disp_in.end(), d_3);
+
+  // Reset out_displacments to be for every slave
+  auto m_bs_d_3 = [bs](auto& num) { num = num * bs / 3; };
+  std::for_each(disp_out.begin(), disp_out.end(), m_bs_d_3);
+  std::for_each(num_out_slaves.begin(), num_out_slaves.end(), m_bs_d_3);
+
+  // Create remote arrays
+  std::vector<std::int64_t> masters_remote;
+  masters_remote.reserve(coords_recv.size());
+  std::vector<std::int32_t> owners_remote;
+  owners_remote.reserve(coords_recv.size());
+  std::vector<T> coeffs_remote;
+  coeffs_remote.reserve(coords_recv.size());
+  std::vector<std::int32_t> num_masters_per_slave;
+  num_masters_per_slave.reserve(bs * coords_recv.size() / 3);
+
+  // Compute local collisions with remote coordinates
+  auto remote_bbox_collisions
+      = dolfinx::geometry::compute_collisions(tree, coords_recv);
+  auto remote_cell_collisions = dolfinx::geometry::compute_colliding_cells(
+      *mesh.get(), remote_bbox_collisions, coords_recv);
+
+  // Find remote masters and count how many to send to each process
+  std::vector<std::int32_t> num_remote_masters(indegree, 0);
+  std::vector<std::int32_t> num_remote_slaves(indegree);
+  for (int i = 0; i < indegree; i++)
+  {
+    // Count number of masters added and number of slaves for output
+    std::int32_t r_masters = 0;
+    num_remote_slaves[i] = bs * (disp_in[i + 1] - disp_in[i]);
+
+    for (std::int32_t j = disp_in[i]; j < disp_in[i + 1]; j++)
+    {
+      auto local_cells = remote_cell_collisions.links(j);
+      if (local_cells.empty())
+      {
+        for (int sb = 0; sb < bs; sb++)
+          num_masters_per_slave.push_back(0);
+      }
+      else
+      {
+        // Compute basis functions at mapped point
+        const std::int32_t cell = local_cells[0];
+        auto x_j = xt::view(coords_recv, j, xt::xrange(0, gdim));
+        xt::xtensor<double, 2> basis_values = dolfinx_mpc::get_basis_functions(
+            V, xt::reshape_view(x_j, {1, gdim}), cell);
+
+        // Check if basis values are not zero, and add master, coeff and owner
+        // info for each dof in the block
+        auto cell_blocks = dofmap->cell_dofs(cell);
+        global_blocks.resize(cell_blocks.size());
+        imap->local_to_global(cell_blocks, global_blocks);
+        for (int sb = 0; sb < bs; sb++)
+        {
+          int num_masters = 0;
+          for (std::size_t k = 0; k < cell_blocks.size(); k++)
+          {
+            for (int b = 0; b < bs; b++)
+            {
+              const double val = scale * basis_values(k * bs + b, sb);
+              if (std::abs(val) > 1e-13)
+              {
+                num_masters++;
+                masters_remote.push_back(global_blocks[k] * bs + b);
+                coeffs_remote.push_back(val);
+                if (cell_blocks[k] < size_local)
+                  owners_remote.push_back(rank);
+                else
+                  owners_remote.push_back(
+                      ghost_owners[cell_blocks[k] - size_local]);
+              }
+            }
+          }
+          r_masters += num_masters;
+          num_masters_per_slave.push_back(num_masters);
+        }
+      }
+    }
+    num_remote_masters[i] += r_masters;
+  }
 
   // Create inverse communicator
   // Procs with possible masters -> slave block owners
@@ -362,6 +500,72 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       mesh->comm(), s_to_m_ranks.size(), s_to_m_ranks.data(),
       s_to_m_weights.data(), m_to_s_ranks.size(), m_to_s_ranks.data(),
       m_to_s_weights.data(), MPI_INFO_NULL, false, &master_to_slave);
+
+  // Communicate how many masters has been found on the other process
+  std::vector<std::int32_t> num_recv_masters(outdegree);
+  MPI_Request request_m;
+  MPI_Ineighbor_alltoall(
+      num_remote_masters.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
+      num_recv_masters.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
+      master_to_slave, &request_m);
+
+  // disp_out and num_out_slaves are used for the number of incoming
+  // number_of_masters_per_slave
+  std::vector<std::int32_t> remote_slave_disp_out(indegree + 1, 0);
+  std::partial_sum(num_remote_slaves.begin(), num_remote_slaves.end(),
+                   remote_slave_disp_out.begin() + 1);
+
+  // Send num masters per slave
+  std::vector<std::int32_t> recv_num_masters_per_slave(disp_out.back());
+  MPI_Neighbor_alltoallv(
+      num_masters_per_slave.data(), num_remote_slaves.data(),
+      remote_slave_disp_out.data(), dolfinx::MPI::mpi_type<std::int32_t>(),
+      recv_num_masters_per_slave.data(), num_out_slaves.data(), disp_out.data(),
+      dolfinx::MPI::mpi_type<std::int32_t>(), master_to_slave);
+
+  // Wait for number of remote masters to be received
+  MPI_Status status_m;
+  MPI_Wait(&request_m, &status_m);
+
+  // Compute in/out displacements for masters/coeffs/owners
+  std::vector<std::int32_t> master_recv_disp(outdegree + 1, 0);
+  std::partial_sum(num_recv_masters.begin(), num_recv_masters.end(),
+                   master_recv_disp.begin() + 1);
+  std::vector<std::int32_t> master_send_disp(indegree + 1, 0);
+  std::partial_sum(num_remote_masters.begin(), num_remote_masters.end(),
+                   master_send_disp.begin() + 1);
+
+  // Send masters/coeffs/owners to slave process
+  std::vector<std::int64_t> recv_masters(master_recv_disp.back());
+  std::vector<std::int32_t> recv_owners(master_recv_disp.back());
+  std::vector<T> recv_coeffs(master_recv_disp.back());
+  std::array<MPI_Status, 3> data_status;
+  std::array<MPI_Request, 3> data_request;
+
+  MPI_Ineighbor_alltoallv(
+      masters_remote.data(), num_remote_masters.data(), master_send_disp.data(),
+      dolfinx::MPI::mpi_type<std::int64_t>(), recv_masters.data(),
+      num_recv_masters.data(), master_recv_disp.data(),
+      dolfinx::MPI::mpi_type<std::int64_t>(), master_to_slave,
+      &data_request[0]);
+  MPI_Ineighbor_alltoallv(coeffs_remote.data(), num_remote_masters.data(),
+                          master_send_disp.data(), dolfinx::MPI::mpi_type<T>(),
+                          recv_coeffs.data(), num_recv_masters.data(),
+                          master_recv_disp.data(), dolfinx::MPI::mpi_type<T>(),
+                          master_to_slave, &data_request[1]);
+  MPI_Ineighbor_alltoallv(
+      owners_remote.data(), num_remote_masters.data(), master_send_disp.data(),
+      dolfinx::MPI::mpi_type<std::int32_t>(), recv_owners.data(),
+      num_recv_masters.data(), master_recv_disp.data(),
+      dolfinx::MPI::mpi_type<std::int32_t>(), master_to_slave,
+      &data_request[2]);
+
+  /// Wait for all communication to finish
+  MPI_Waitall(3, data_request.data(), data_status.data());
+
+  dolfinx_mpc::recv_data test_data = dolfinx_mpc::send_master_data_to_owner(
+      master_to_slave, num_remote_masters, num_remote_slaves, num_out_slaves,
+      num_masters_per_slave, masters_remote, coeffs_remote, owners_remote);
 
   dolfinx_mpc::mpc_data a;
   return a;

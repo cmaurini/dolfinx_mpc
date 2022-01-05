@@ -14,10 +14,22 @@
 #include <dolfinx/graph/AdjacencyList.h>
 #include <dolfinx/la/SparsityPattern.h>
 #include <dolfinx/la/petsc.h>
+#include <xtensor/xadapt.hpp>
+#include <xtensor/xio.hpp>
 #include <xtensor/xtensor.hpp>
-
 namespace dolfinx_mpc
 {
+
+/// Structure to hold data after mpi communication
+template <typename T>
+struct recv_data
+{
+  std::vector<std::int32_t> num_masters_per_slave;
+  std::vector<std::int64_t> masters;
+  std::vector<std::int32_t> owners;
+  std::vector<T> coeffs;
+};
+
 template <typename T>
 class MultiPointConstraint;
 
@@ -145,5 +157,110 @@ map_dofs_global_to_local(std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
 dolfinx::fem::FunctionSpace create_extended_functionspace(
     std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
     std::vector<std::int64_t>& global_dofs, std::vector<std::int32_t>& owners);
+
+/// Send masters, coefficients, owners and offsets to the process owning the
+/// slave degree of freedom.
+/// @param[in] master_to_slave MPI neighborhood communicator from processes with
+/// master dofs to those owning the slave dofs
+/// @param[in] num_remote_masters Number of masters that will be sent to each
+/// destination of the neighboorhod communicator
+/// @param[in] num_remote_slaves Number of slaves that will be sent to each
+/// destination of the neighborhood communicator
+/// @param[in] num_incoming_slaves Number of slaves that wil be received from
+/// each source of the neighboorhod communicator
+/// @param[in] num_masters_per_slave The number of masters for each slave that
+/// will be sent to the owning rank
+/// @param[in] masters The masters to send to the owning process
+/// @param[in] coeffs The corresponding coefficients to send to the owning
+/// process
+/// @param[in] owners The owning rank of each master
+/// @returns Data structure with the number of masters per slave, the master
+/// dofs (global indices), the coefficients and owners
+template <typename T>
+recv_data<T> send_master_data_to_owner(
+    MPI_Comm& master_to_slave,
+    const std::vector<std::int32_t>& num_remote_masters,
+    const std::vector<std::int32_t>& num_remote_slaves,
+    const std::vector<std::int32_t>& num_incoming_slaves,
+    const std::vector<std::int32_t>& num_masters_per_slave,
+    const std::vector<std::int64_t>& masters, const std::vector<T>& coeffs,
+    const std::vector<std::int32_t>& owners)
+{
+  int indegree(-1);
+  int outdegree(-2);
+  int weighted(-1);
+  MPI_Dist_graph_neighbors_count(master_to_slave, &indegree, &outdegree,
+                                 &weighted);
+
+  // Communicate how many masters has been found on the other process
+  std::vector<std::int32_t> num_recv_masters(indegree);
+  MPI_Request request_m;
+  MPI_Ineighbor_alltoall(
+      num_remote_masters.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
+      num_recv_masters.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
+      master_to_slave, &request_m);
+
+  std::vector<std::int32_t> remote_slave_disp_out(outdegree + 1, 0);
+  std::partial_sum(num_remote_slaves.begin(), num_remote_slaves.end(),
+                   remote_slave_disp_out.begin() + 1);
+
+  // Send num masters per slave
+  std::vector<int> slave_disp_in(indegree + 1, 0);
+  std::partial_sum(num_incoming_slaves.begin(), num_incoming_slaves.end(),
+                   slave_disp_in.begin() + 1);
+  std::vector<std::int32_t> recv_num_masters_per_slave(slave_disp_in.back());
+  MPI_Neighbor_alltoallv(
+      num_masters_per_slave.data(), num_remote_slaves.data(),
+      remote_slave_disp_out.data(), dolfinx::MPI::mpi_type<std::int32_t>(),
+      recv_num_masters_per_slave.data(), num_incoming_slaves.data(),
+      slave_disp_in.data(), dolfinx::MPI::mpi_type<std::int32_t>(),
+      master_to_slave);
+
+  // Wait for number of remote masters to be received
+  MPI_Status status_m;
+  MPI_Wait(&request_m, &status_m);
+
+  // Compute in/out displacements for masters/coeffs/owners
+  std::vector<std::int32_t> master_recv_disp(indegree + 1, 0);
+  std::partial_sum(num_recv_masters.begin(), num_recv_masters.end(),
+                   master_recv_disp.begin() + 1);
+  std::vector<std::int32_t> master_send_disp(outdegree + 1, 0);
+  std::partial_sum(num_remote_masters.begin(), num_remote_masters.end(),
+                   master_send_disp.begin() + 1);
+
+  // Send masters/coeffs/owners to slave process
+  std::vector<std::int64_t> recv_masters(master_recv_disp.back());
+  std::vector<std::int32_t> recv_owners(master_recv_disp.back());
+  std::vector<T> recv_coeffs(master_recv_disp.back());
+  std::array<MPI_Status, 3> data_status;
+  std::array<MPI_Request, 3> data_request;
+
+  MPI_Ineighbor_alltoallv(
+      masters.data(), num_remote_masters.data(), master_send_disp.data(),
+      dolfinx::MPI::mpi_type<std::int64_t>(), recv_masters.data(),
+      num_recv_masters.data(), master_recv_disp.data(),
+      dolfinx::MPI::mpi_type<std::int64_t>(), master_to_slave,
+      &data_request[0]);
+  MPI_Ineighbor_alltoallv(coeffs.data(), num_remote_masters.data(),
+                          master_send_disp.data(), dolfinx::MPI::mpi_type<T>(),
+                          recv_coeffs.data(), num_recv_masters.data(),
+                          master_recv_disp.data(), dolfinx::MPI::mpi_type<T>(),
+                          master_to_slave, &data_request[1]);
+  MPI_Ineighbor_alltoallv(
+      owners.data(), num_remote_masters.data(), master_send_disp.data(),
+      dolfinx::MPI::mpi_type<std::int32_t>(), recv_owners.data(),
+      num_recv_masters.data(), master_recv_disp.data(),
+      dolfinx::MPI::mpi_type<std::int32_t>(), master_to_slave,
+      &data_request[2]);
+
+  /// Wait for all communication to finish
+  MPI_Waitall(3, data_request.data(), data_status.data());
+  dolfinx_mpc::recv_data<T> output;
+  output.masters = recv_masters;
+  output.coeffs = recv_coeffs;
+  output.num_masters_per_slave = recv_num_masters_per_slave;
+  output.owners = recv_owners;
+  return output;
+}
 
 } // namespace dolfinx_mpc
