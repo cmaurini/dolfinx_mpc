@@ -199,41 +199,65 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
                     local_blocks.push_back(block);
                 });
 
-  // Find one cell per degree of freedom to reduce size of tabulation
   std::vector<std::int32_t> slave_cells;
   slave_cells.reserve(local_blocks.size());
-  for (std::size_t i = 0; i < local_blocks.size(); i++)
   {
-    const std::int32_t block = local_blocks[i];
-    for (int j = 0; j < num_cells_local + num_ghost_cells; j++)
+    // Create block -> cells map
+
+    // Compute number of cells each dof is in
+    std::vector<std::int32_t> num_cells_per_dof(size_local
+                                                + ghost_owners.size());
+    for (std::int32_t i = 0; i < num_cells_local + num_ghost_cells; i++)
     {
-      auto dofs = dofmap->cell_dofs(j);
-      auto it = std::find(dofs.begin(), dofs.end(), block);
-      if (it != dofs.end())
-      {
-        slave_cells.push_back(j);
-        break;
-      }
+      auto dofs = dofmap->cell_dofs(i);
+      for (auto dof : dofs)
+        num_cells_per_dof[dof]++;
     }
+    std::vector<std::int32_t> cell_dofs_disp(num_cells_per_dof.size() + 1, 0);
+    std::partial_sum(num_cells_per_dof.begin(), num_cells_per_dof.end(),
+                     cell_dofs_disp.begin() + 1);
+    std::vector<std::int32_t> cell_map(cell_dofs_disp.back());
+    // Reuse num_cells_per_dof for insertion
+    std::fill(num_cells_per_dof.begin(), num_cells_per_dof.end(), 0);
+
+    // Create the block -> cells map
+    for (std::int32_t i = 0; i < num_cells_local + num_ghost_cells; i++)
+    {
+      auto dofs = dofmap->cell_dofs(i);
+      for (auto dof : dofs)
+        cell_map[cell_dofs_disp[dof] + num_cells_per_dof[dof]++] = i;
+    }
+
+    // Populate map from slaves to corresponding cell (choose first cell in map)
+    for (std::size_t i = 0; i < local_blocks.size(); i++)
+      slave_cells.push_back(cell_map[cell_dofs_disp[local_blocks[i]]]);
   }
   assert(slave_cells.size() == local_blocks.size());
+
   // Tabulate dof coordinates for each dof
   xt::xtensor<double, 2> x
       = tabulate_dof_coordinates(V, local_blocks, slave_cells);
 
+  dolfinx::common::Timer t8("~PERIODIC: Map");
+
   // Compute master coordinates
   auto mapped_x = relation(x);
   auto mapped_T = xt::transpose(mapped_x);
+  t8.stop();
+
   // Create bounding-box tree over owned cells
   std::vector<std::int32_t> r(num_cells_local);
   std::iota(r.begin(), r.end(), 0);
   dolfinx::geometry::BoundingBoxTree tree(*mesh.get(), tdim, r, 1e-15);
-
+  dolfinx::common::Timer t13("~PERIODIC: Global colls");
   // Create process bounding box tree
   auto process_tree = tree.create_global_tree(mesh->comm());
   // Compute process collisions with mapped coordinates
   auto colliding_bbox_processes
       = dolfinx::geometry::compute_collisions(process_tree, mapped_T);
+  t13.stop();
+
+  dolfinx::common::Timer t10("~PERIODIC: Local colls");
 
   // Compute local collisions (and exact cell collisions) for each mapped
   // coordinate
@@ -241,6 +265,10 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       = dolfinx::geometry::compute_collisions(tree, mapped_T);
   auto local_cell_collisions = dolfinx::geometry::compute_colliding_cells(
       *mesh.get(), local_bbox_collisions, mapped_T);
+  t10.stop();
+
+  dolfinx::common::Timer t3("~PERIODIC: after tabulate dofs->masters");
+
   // Create output arrays
   std::vector<std::int32_t> slaves;
   slaves.reserve(slave_blocks.size() * bs);
@@ -309,9 +337,14 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       // Count number of incoming blocks from other processes
       auto procs = colliding_bbox_processes.links(i);
       for (auto proc : procs)
+      {
+        if (rank == proc)
+          continue;
         off_process_counter[proc]++;
+      }
     }
   }
+  t3.stop();
 
   // Communicate s_to_m
   std::vector<std::int32_t> s_to_m_ranks;
@@ -386,6 +419,8 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       auto procs = colliding_bbox_processes.links(i);
       for (auto proc : procs)
       {
+        if (rank == proc)
+          continue;
         // Find position in neighborhood communicator
         auto it = std::find(s_to_m_ranks.begin(), s_to_m_ranks.end(), proc);
         assert(it != s_to_m_ranks.end());
@@ -520,239 +555,13 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       recv_data, searching_dofs, slaves, masters, coeffs, owners,
       num_masters_per_slave, size_local, bs);
 
-  // FIXME: Distribute ghost data
-  dolfinx_mpc::mpc_data ghost_data;
+  dolfinx::common::Timer t("~PERIODIC: New ghost distribution");
+  // Distribute ghost data
+  dolfinx_mpc::mpc_data ghost_data
+      = dolfinx_mpc::distribute_ghost_data<PetscScalar>(
+          slaves, masters, coeffs, owners, num_masters_per_slave, imap, bs);
 
-  // Create index map containing only slave indices
-  {
-
-    // Create new index map for each slave block
-    std::vector<std::int32_t> blocks;
-    blocks.reserve(slaves.size());
-    std::transform(slaves.cbegin(), slaves.cend(), std::back_inserter(blocks),
-                   [bs](auto& dof) { return dof / bs; });
-    std::sort(blocks.begin(), blocks.end());
-    blocks.erase(std::unique(blocks.begin(), blocks.end()), blocks.end());
-
-    std::pair<dolfinx::common::IndexMap, std::vector<int32_t>> compressed_map
-        = imap->create_submap(blocks);
-
-    // Build map from new index map to slave indices (unrolled)
-    std::vector<std::int32_t> parent_to_sub;
-    parent_to_sub.reserve(slaves.size());
-    std::vector<std::int32_t> slave_blocks;
-    slave_blocks.reserve(slaves.size());
-    std::vector<std::int32_t> slave_rems;
-    slave_rems.reserve(slaves.size());
-    for (std::size_t i = 0; i < slaves.size(); i++)
-    {
-      std::div_t div = std::div(slaves[i], bs);
-      slave_blocks[i] = div.quot;
-      slave_rems[i] = div.rem;
-      auto it = std::find(blocks.begin(), blocks.end(), div.quot);
-      assert(it != blocks.end());
-      auto index = std::distance(blocks.begin(), it);
-      parent_to_sub.push_back(index);
-    }
-
-    // Get communicator for owner->ghost
-    dolfinx::common::IndexMap& slave_to_ghost = compressed_map.first;
-    MPI_Comm local_to_ghost
-        = slave_to_ghost.comm(dolfinx::common::IndexMap::Direction::forward);
-    auto [src_ranks_ghosts, dest_ranks_ghosts]
-        = dolfinx::MPI::neighbors(local_to_ghost);
-
-    // Count the number of outgoing slaves and masters from owner
-    std::map<std::int32_t, std::set<int>> shared_indices
-        = slave_to_ghost.compute_shared_indices();
-    const std::size_t num_inc_proc = src_ranks_ghosts.size();
-    const std::size_t num_out_proc = dest_ranks_ghosts.size();
-    std::vector<std::int32_t> out_num_slaves(num_out_proc, 0);
-    std::vector<std::int32_t> out_num_masters(num_out_proc, 0);
-    for (std::size_t i = 0; i < slaves.size(); ++i)
-    {
-      // Find ghost processes for the ith local slave
-      std::set<int> ghost_procs = shared_indices[parent_to_sub[i]];
-      for (auto proc : ghost_procs)
-      {
-        // Find index of process in local MPI communicator
-        auto it = std::find(dest_ranks_ghosts.begin(), dest_ranks_ghosts.end(),
-                            proc);
-        const auto index = std::distance(dest_ranks_ghosts.begin(), it);
-        out_num_masters[index] += num_masters_per_slave[i];
-        out_num_slaves[index]++;
-      }
-    }
-
-    // Communicate number of incoming slaves and masters
-    std::vector<int> in_num_slaves(num_inc_proc);
-    std::vector<int> in_num_masters(num_inc_proc);
-    std::array<MPI_Request, 2> requests;
-    std::array<MPI_Status, 2> states;
-    MPI_Ineighbor_alltoall(out_num_slaves.data(), 1, MPI_INT,
-                           in_num_slaves.data(), 1, MPI_INT, local_to_ghost,
-                           &requests[0]);
-    MPI_Ineighbor_alltoall(out_num_masters.data(), 1, MPI_INT,
-                           in_num_masters.data(), 1, MPI_INT, local_to_ghost,
-                           &requests[1]);
-
-    // Compute out displacements for slaves and masters
-    std::vector<std::int32_t> disp_out_masters(num_out_proc + 1, 0);
-    std::partial_sum(out_num_masters.begin(), out_num_masters.end(),
-                     disp_out_masters.begin() + 1);
-    std::vector<std::int32_t> disp_out_slaves(num_out_proc + 1, 0);
-    std::partial_sum(out_num_slaves.begin(), out_num_slaves.end(),
-                     disp_out_slaves.begin() + 1);
-
-    // Compute displacement of masters to able to insert them correctly
-    std::vector<std::int32_t> local_offsets(slaves.size() + 1, 0);
-    std::partial_sum(num_masters_per_slave.begin(), num_masters_per_slave.end(),
-                     local_offsets.begin() + 1);
-
-    // Insertion counter
-    std::vector<std::int32_t> insert_slaves(num_out_proc, 0);
-    std::vector<std::int32_t> insert_masters(num_out_proc, 0);
-
-    // Prepare arrays for sending ghost information
-    std::vector<std::int64_t> masters_out(disp_out_masters.back());
-    std::vector<PetscScalar> coeffs_out(disp_out_masters.back());
-    std::vector<std::int32_t> owners_out(disp_out_masters.back());
-    std::vector<std::int32_t> slaves_out_block(disp_out_slaves.back());
-    std::vector<std::int32_t> slaves_out_rem(disp_out_slaves.back());
-    std::vector<std::int64_t> slaves_out(disp_out_slaves.back());
-    std::vector<std::int32_t> masters_per_slave(disp_out_slaves.back());
-    for (std::size_t i = 0; i < slaves.size(); ++i)
-    {
-      // Find ghost processes for the ith local slave
-      std::set<int> ghost_procs = shared_indices[parent_to_sub[i]];
-      const std::int32_t master_start = local_offsets[i];
-      const std::int32_t master_end = local_offsets[i + 1];
-      for (auto proc : ghost_procs)
-      {
-        // Find index of process in local MPI communicator
-        auto it = std::find(dest_ranks_ghosts.begin(), dest_ranks_ghosts.end(),
-                            proc);
-        const auto index = std::distance(dest_ranks_ghosts.begin(), it);
-
-        // Insert slave and num masters per slave
-        slaves_out_block[disp_out_slaves[index] + insert_slaves[index]]
-            = slave_blocks[i];
-        slaves_out_rem[disp_out_slaves[index] + insert_slaves[index]]
-            = slave_rems[i];
-        masters_per_slave[disp_out_slaves[index] + insert_slaves[index]]
-            = num_masters_per_slave[i];
-        insert_slaves[index]++;
-
-        // Insert global master dofs to send
-        std::copy(masters.begin() + master_start, masters.begin() + master_end,
-                  masters_out.begin() + disp_out_masters[index]
-                      + insert_masters[index]);
-        // Insert owners to send
-        std::copy(owners.begin() + master_start, owners.begin() + master_end,
-                  owners_out.begin() + disp_out_masters[index]
-                      + insert_masters[index]);
-        // Insert coeffs to send
-        std::copy(coeffs.begin() + master_start, coeffs.begin() + master_end,
-                  coeffs_out.begin() + disp_out_masters[index]
-                      + insert_masters[index]);
-        insert_masters[index] += num_masters_per_slave[i];
-      }
-    }
-    // Map slaves to global index
-    imap->local_to_global(slaves_out_block, slaves_out);
-    for (std::size_t i = 0; i < slaves_out.size(); i++)
-      slaves_out[i] = slaves_out[i] * bs + slaves_out_rem[i];
-
-    // Create in displacements for slaves
-    MPI_Wait(&requests[0], &states[0]);
-    std::vector<std::int32_t> disp_in_slaves(num_inc_proc + 1, 0);
-    std::partial_sum(in_num_slaves.begin(), in_num_slaves.end(),
-                     disp_in_slaves.begin() + 1);
-
-    // Create in displacements for masters
-    MPI_Wait(&requests[1], &states[1]);
-    std::vector<std::int32_t> disp_in_masters(num_inc_proc + 1, 0);
-    std::partial_sum(in_num_masters.begin(), in_num_masters.end(),
-                     disp_in_masters.begin() + 1);
-
-    // Send data to ghost processes
-    std::vector<MPI_Request> ghost_requests(5);
-    std::vector<MPI_Status> ghost_status(5);
-
-    // Receive slaves from owner
-    std::vector<std::int64_t> recv_slaves(disp_in_slaves.back());
-    MPI_Ineighbor_alltoallv(
-        slaves_out.data(), out_num_slaves.data(), disp_out_slaves.data(),
-        dolfinx::MPI::mpi_type<std::int64_t>(), recv_slaves.data(),
-        in_num_slaves.data(), disp_in_slaves.data(),
-        dolfinx::MPI::mpi_type<std::int64_t>(), local_to_ghost,
-        &ghost_requests[0]);
-
-    // Receive number of masters from owner
-    std::vector<std::int32_t> recv_num(disp_in_slaves.back());
-    MPI_Ineighbor_alltoallv(
-        masters_per_slave.data(), out_num_slaves.data(), disp_out_slaves.data(),
-        dolfinx::MPI::mpi_type<std::int32_t>(), recv_num.data(),
-        in_num_slaves.data(), disp_in_slaves.data(),
-        dolfinx::MPI::mpi_type<std::int32_t>(), local_to_ghost,
-        &ghost_requests[1]);
-
-    // Convert slaves to local index
-    MPI_Wait(&ghost_requests[0], &ghost_status[0]);
-    std::vector<std::int64_t> recv_block;
-    recv_block.reserve(recv_slaves.size());
-    std::vector<std::int64_t> recv_rem;
-    recv_rem.reserve(recv_slaves.size());
-    std::transform(recv_slaves.cbegin(), recv_slaves.cend(),
-                   std::back_inserter(recv_block),
-                   [bs, &recv_rem](const auto dof)
-                   {
-                     std::ldiv_t div = std::div(dof, (std::int64_t)bs);
-                     recv_rem.push_back(div.rem);
-                     return div.quot;
-                   });
-    std::vector<std::int32_t> recv_local(recv_slaves.size());
-    imap->global_to_local(recv_block, recv_local);
-    for (std::size_t i = 0; i < recv_local.size(); i++)
-      recv_local[i] = recv_local[i] * bs + recv_rem[i];
-
-    MPI_Wait(&ghost_requests[1], &ghost_status[1]);
-
-    // Receive masters, coeffs and owners from owning processes
-    std::vector<std::int64_t> recv_masters(disp_in_masters.back());
-    MPI_Ineighbor_alltoallv(
-        masters_out.data(), out_num_masters.data(), disp_out_masters.data(),
-        dolfinx::MPI::mpi_type<std::int64_t>(), recv_masters.data(),
-        in_num_masters.data(), disp_in_masters.data(),
-        dolfinx::MPI::mpi_type<std::int64_t>(), local_to_ghost,
-        &ghost_requests[2]);
-    std::vector<std::int32_t> recv_owners(disp_in_masters.back());
-    MPI_Ineighbor_alltoallv(
-        owners_out.data(), out_num_masters.data(), disp_out_masters.data(),
-        dolfinx::MPI::mpi_type<std::int32_t>(), recv_owners.data(),
-        in_num_masters.data(), disp_in_masters.data(),
-        dolfinx::MPI::mpi_type<std::int32_t>(), local_to_ghost,
-        &ghost_requests[3]);
-    std::vector<PetscScalar> recv_coeffs(disp_in_masters.back());
-    MPI_Ineighbor_alltoallv(
-        coeffs_out.data(), out_num_masters.data(), disp_out_masters.data(),
-        dolfinx::MPI::mpi_type<PetscScalar>(), recv_coeffs.data(),
-        in_num_masters.data(), disp_in_masters.data(),
-        dolfinx::MPI::mpi_type<PetscScalar>(), local_to_ghost,
-        &ghost_requests[4]);
-
-    ghost_data.slaves = recv_local;
-    ghost_data.offsets = recv_num;
-
-    MPI_Wait(&ghost_requests[2], &ghost_status[2]);
-    ghost_data.masters = recv_masters;
-    MPI_Wait(&ghost_requests[3], &ghost_status[3]);
-    ghost_data.owners = recv_owners;
-    MPI_Wait(&ghost_requests[4], &ghost_status[4]);
-    ghost_data.coeffs = recv_coeffs;
-  }
-
-  // Add data to existing arrays
+  // Add ghost data to existing arrays
   std::vector<std::int32_t>& ghost_slaves = ghost_data.slaves;
   slaves.insert(std::end(slaves), std::begin(ghost_slaves),
                 std::end(ghost_slaves));
@@ -766,7 +575,6 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   coeffs.insert(std::end(coeffs), std::begin(ghost_coeffs),
                 std::end(ghost_coeffs));
   std::vector<std::int32_t>& ghost_owner_ranks = ghost_data.owners;
-
   owners.insert(std::end(owners), std::begin(ghost_owner_ranks),
                 std::end(ghost_owner_ranks));
 
@@ -774,7 +582,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   std::vector<std::int32_t> offsets(num_masters_per_slave.size() + 1, 0);
   std::partial_sum(num_masters_per_slave.begin(), num_masters_per_slave.end(),
                    offsets.begin() + 1);
-
+  t.stop();
   dolfinx_mpc::mpc_data output;
   output.offsets = offsets;
   output.masters = masters;
