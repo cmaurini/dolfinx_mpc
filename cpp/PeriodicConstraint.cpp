@@ -189,18 +189,14 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   const int num_cells_local = cell_map->size_local();
   const int num_ghost_cells = cell_map->num_ghosts();
 
-  // Split blocks into owned and ghost entities
+  // Only work with local blocks
   std::vector<std::int32_t> local_blocks;
   local_blocks.reserve(slave_blocks.size());
-  std::vector<std::int32_t> ghost_blocks;
-  ghost_blocks.reserve(slave_blocks.size());
   std::for_each(slave_blocks.begin(), slave_blocks.end(),
-                [&local_blocks, &ghost_blocks, size_local](auto block)
+                [&local_blocks, size_local](auto block)
                 {
                   if (block < size_local)
                     local_blocks.push_back(block);
-                  else
-                    ghost_blocks.push_back(block);
                 });
 
   // Find one cell per degree of freedom to reduce size of tabulation
@@ -525,6 +521,254 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       num_masters_per_slave, size_local, bs);
 
   // FIXME: Distribute ghost data
+  dolfinx_mpc::mpc_data ghost_data;
+
+  // Create index map containing only slave indices
+  {
+
+    // Create new index map for each slave block
+    std::vector<std::int32_t> blocks;
+    blocks.reserve(slaves.size());
+    std::transform(slaves.cbegin(), slaves.cend(), std::back_inserter(blocks),
+                   [bs](auto& dof) { return dof / bs; });
+    std::sort(blocks.begin(), blocks.end());
+    blocks.erase(std::unique(blocks.begin(), blocks.end()), blocks.end());
+
+    std::pair<dolfinx::common::IndexMap, std::vector<int32_t>> compressed_map
+        = imap->create_submap(blocks);
+
+    // Build map from new index map to slave indices (unrolled)
+    std::vector<std::int32_t> parent_to_sub;
+    parent_to_sub.reserve(slaves.size());
+    std::vector<std::int32_t> slave_blocks;
+    slave_blocks.reserve(slaves.size());
+    std::vector<std::int32_t> slave_rems;
+    slave_rems.reserve(slaves.size());
+    for (std::size_t i = 0; i < slaves.size(); i++)
+    {
+      std::div_t div = std::div(slaves[i], bs);
+      slave_blocks[i] = div.quot;
+      slave_rems[i] = div.rem;
+      auto it = std::find(blocks.begin(), blocks.end(), div.quot);
+      assert(it != blocks.end());
+      auto index = std::distance(blocks.begin(), it);
+      parent_to_sub.push_back(index);
+    }
+
+    // Get communicator for owner->ghost
+    dolfinx::common::IndexMap& slave_to_ghost = compressed_map.first;
+    MPI_Comm local_to_ghost
+        = slave_to_ghost.comm(dolfinx::common::IndexMap::Direction::forward);
+    auto [src_ranks_ghosts, dest_ranks_ghosts]
+        = dolfinx::MPI::neighbors(local_to_ghost);
+
+    // Count the number of outgoing slaves and masters from owner
+    std::map<std::int32_t, std::set<int>> shared_indices
+        = slave_to_ghost.compute_shared_indices();
+    const std::size_t num_inc_proc = src_ranks_ghosts.size();
+    const std::size_t num_out_proc = dest_ranks_ghosts.size();
+    std::vector<std::int32_t> out_num_slaves(num_out_proc, 0);
+    std::vector<std::int32_t> out_num_masters(num_out_proc, 0);
+    for (std::size_t i = 0; i < slaves.size(); ++i)
+    {
+      // Find ghost processes for the ith local slave
+      std::set<int> ghost_procs = shared_indices[parent_to_sub[i]];
+      for (auto proc : ghost_procs)
+      {
+        // Find index of process in local MPI communicator
+        auto it = std::find(dest_ranks_ghosts.begin(), dest_ranks_ghosts.end(),
+                            proc);
+        const auto index = std::distance(dest_ranks_ghosts.begin(), it);
+        out_num_masters[index] += num_masters_per_slave[i];
+        out_num_slaves[index]++;
+      }
+    }
+
+    // Communicate number of incoming slaves and masters
+    std::vector<int> in_num_slaves(num_inc_proc);
+    std::vector<int> in_num_masters(num_inc_proc);
+    std::array<MPI_Request, 2> requests;
+    std::array<MPI_Status, 2> states;
+    MPI_Ineighbor_alltoall(out_num_slaves.data(), 1, MPI_INT,
+                           in_num_slaves.data(), 1, MPI_INT, local_to_ghost,
+                           &requests[0]);
+    MPI_Ineighbor_alltoall(out_num_masters.data(), 1, MPI_INT,
+                           in_num_masters.data(), 1, MPI_INT, local_to_ghost,
+                           &requests[1]);
+
+    // Compute out displacements for slaves and masters
+    std::vector<std::int32_t> disp_out_masters(num_out_proc + 1, 0);
+    std::partial_sum(out_num_masters.begin(), out_num_masters.end(),
+                     disp_out_masters.begin() + 1);
+    std::vector<std::int32_t> disp_out_slaves(num_out_proc + 1, 0);
+    std::partial_sum(out_num_slaves.begin(), out_num_slaves.end(),
+                     disp_out_slaves.begin() + 1);
+
+    // Compute displacement of masters to able to insert them correctly
+    std::vector<std::int32_t> local_offsets(slaves.size() + 1, 0);
+    std::partial_sum(num_masters_per_slave.begin(), num_masters_per_slave.end(),
+                     local_offsets.begin() + 1);
+
+    // Insertion counter
+    std::vector<std::int32_t> insert_slaves(num_out_proc, 0);
+    std::vector<std::int32_t> insert_masters(num_out_proc, 0);
+
+    // Prepare arrays for sending ghost information
+    std::vector<std::int64_t> masters_out(disp_out_masters.back());
+    std::vector<PetscScalar> coeffs_out(disp_out_masters.back());
+    std::vector<std::int32_t> owners_out(disp_out_masters.back());
+    std::vector<std::int32_t> slaves_out_block(disp_out_slaves.back());
+    std::vector<std::int32_t> slaves_out_rem(disp_out_slaves.back());
+    std::vector<std::int64_t> slaves_out(disp_out_slaves.back());
+    std::vector<std::int32_t> masters_per_slave(disp_out_slaves.back());
+    for (std::size_t i = 0; i < slaves.size(); ++i)
+    {
+      // Find ghost processes for the ith local slave
+      std::set<int> ghost_procs = shared_indices[parent_to_sub[i]];
+      const std::int32_t master_start = local_offsets[i];
+      const std::int32_t master_end = local_offsets[i + 1];
+      for (auto proc : ghost_procs)
+      {
+        // Find index of process in local MPI communicator
+        auto it = std::find(dest_ranks_ghosts.begin(), dest_ranks_ghosts.end(),
+                            proc);
+        const auto index = std::distance(dest_ranks_ghosts.begin(), it);
+
+        // Insert slave and num masters per slave
+        slaves_out_block[disp_out_slaves[index] + insert_slaves[index]]
+            = slave_blocks[i];
+        slaves_out_rem[disp_out_slaves[index] + insert_slaves[index]]
+            = slave_rems[i];
+        masters_per_slave[disp_out_slaves[index] + insert_slaves[index]]
+            = num_masters_per_slave[i];
+        insert_slaves[index]++;
+
+        // Insert global master dofs to send
+        std::copy(masters.begin() + master_start, masters.begin() + master_end,
+                  masters_out.begin() + disp_out_masters[index]
+                      + insert_masters[index]);
+        // Insert owners to send
+        std::copy(owners.begin() + master_start, owners.begin() + master_end,
+                  owners_out.begin() + disp_out_masters[index]
+                      + insert_masters[index]);
+        // Insert coeffs to send
+        std::copy(coeffs.begin() + master_start, coeffs.begin() + master_end,
+                  coeffs_out.begin() + disp_out_masters[index]
+                      + insert_masters[index]);
+        insert_masters[index] += num_masters_per_slave[i];
+      }
+    }
+    // Map slaves to global index
+    imap->local_to_global(slaves_out_block, slaves_out);
+    for (std::size_t i = 0; i < slaves_out.size(); i++)
+      slaves_out[i] = slaves_out[i] * bs + slaves_out_rem[i];
+
+    // Create in displacements for slaves
+    MPI_Wait(&requests[0], &states[0]);
+    std::vector<std::int32_t> disp_in_slaves(num_inc_proc + 1, 0);
+    std::partial_sum(in_num_slaves.begin(), in_num_slaves.end(),
+                     disp_in_slaves.begin() + 1);
+
+    // Create in displacements for masters
+    MPI_Wait(&requests[1], &states[1]);
+    std::vector<std::int32_t> disp_in_masters(num_inc_proc + 1, 0);
+    std::partial_sum(in_num_masters.begin(), in_num_masters.end(),
+                     disp_in_masters.begin() + 1);
+
+    // Send data to ghost processes
+    std::vector<MPI_Request> ghost_requests(5);
+    std::vector<MPI_Status> ghost_status(5);
+
+    // Receive slaves from owner
+    std::vector<std::int64_t> recv_slaves(disp_in_slaves.back());
+    MPI_Ineighbor_alltoallv(
+        slaves_out.data(), out_num_slaves.data(), disp_out_slaves.data(),
+        dolfinx::MPI::mpi_type<std::int64_t>(), recv_slaves.data(),
+        in_num_slaves.data(), disp_in_slaves.data(),
+        dolfinx::MPI::mpi_type<std::int64_t>(), local_to_ghost,
+        &ghost_requests[0]);
+
+    // Receive number of masters from owner
+    std::vector<std::int32_t> recv_num(disp_in_slaves.back());
+    MPI_Ineighbor_alltoallv(
+        masters_per_slave.data(), out_num_slaves.data(), disp_out_slaves.data(),
+        dolfinx::MPI::mpi_type<std::int32_t>(), recv_num.data(),
+        in_num_slaves.data(), disp_in_slaves.data(),
+        dolfinx::MPI::mpi_type<std::int32_t>(), local_to_ghost,
+        &ghost_requests[1]);
+
+    // Convert slaves to local index
+    MPI_Wait(&ghost_requests[0], &ghost_status[0]);
+    std::vector<std::int64_t> recv_block;
+    recv_block.reserve(recv_slaves.size());
+    std::vector<std::int64_t> recv_rem;
+    recv_rem.reserve(recv_slaves.size());
+    std::transform(recv_slaves.cbegin(), recv_slaves.cend(),
+                   std::back_inserter(recv_block),
+                   [bs, &recv_rem](const auto dof)
+                   {
+                     std::ldiv_t div = std::div(dof, (std::int64_t)bs);
+                     recv_rem.push_back(div.rem);
+                     return div.quot;
+                   });
+    std::vector<std::int32_t> recv_local(recv_slaves.size());
+    imap->global_to_local(recv_block, recv_local);
+    for (std::size_t i = 0; i < recv_local.size(); i++)
+      recv_local[i] = recv_local[i] * bs + recv_rem[i];
+
+    MPI_Wait(&ghost_requests[1], &ghost_status[1]);
+
+    // Receive masters, coeffs and owners from owning processes
+    std::vector<std::int64_t> recv_masters(disp_in_masters.back());
+    MPI_Ineighbor_alltoallv(
+        masters_out.data(), out_num_masters.data(), disp_out_masters.data(),
+        dolfinx::MPI::mpi_type<std::int64_t>(), recv_masters.data(),
+        in_num_masters.data(), disp_in_masters.data(),
+        dolfinx::MPI::mpi_type<std::int64_t>(), local_to_ghost,
+        &ghost_requests[2]);
+    std::vector<std::int32_t> recv_owners(disp_in_masters.back());
+    MPI_Ineighbor_alltoallv(
+        owners_out.data(), out_num_masters.data(), disp_out_masters.data(),
+        dolfinx::MPI::mpi_type<std::int32_t>(), recv_owners.data(),
+        in_num_masters.data(), disp_in_masters.data(),
+        dolfinx::MPI::mpi_type<std::int32_t>(), local_to_ghost,
+        &ghost_requests[3]);
+    std::vector<PetscScalar> recv_coeffs(disp_in_masters.back());
+    MPI_Ineighbor_alltoallv(
+        coeffs_out.data(), out_num_masters.data(), disp_out_masters.data(),
+        dolfinx::MPI::mpi_type<PetscScalar>(), recv_coeffs.data(),
+        in_num_masters.data(), disp_in_masters.data(),
+        dolfinx::MPI::mpi_type<PetscScalar>(), local_to_ghost,
+        &ghost_requests[4]);
+
+    ghost_data.slaves = recv_local;
+    ghost_data.offsets = recv_num;
+
+    MPI_Wait(&ghost_requests[2], &ghost_status[2]);
+    ghost_data.masters = recv_masters;
+    MPI_Wait(&ghost_requests[3], &ghost_status[3]);
+    ghost_data.owners = recv_owners;
+    MPI_Wait(&ghost_requests[4], &ghost_status[4]);
+    ghost_data.coeffs = recv_coeffs;
+  }
+
+  // Add data to existing arrays
+  std::vector<std::int32_t>& ghost_slaves = ghost_data.slaves;
+  slaves.insert(std::end(slaves), std::begin(ghost_slaves),
+                std::end(ghost_slaves));
+  std::vector<std::int64_t>& ghost_masters = ghost_data.masters;
+  masters.insert(std::end(masters), std::begin(ghost_masters),
+                 std::end(ghost_masters));
+  std::vector<std::int32_t>& ghost_num = ghost_data.offsets;
+  num_masters_per_slave.insert(std::end(num_masters_per_slave),
+                               std::begin(ghost_num), std::end(ghost_num));
+  std::vector<PetscScalar>& ghost_coeffs = ghost_data.coeffs;
+  coeffs.insert(std::end(coeffs), std::begin(ghost_coeffs),
+                std::end(ghost_coeffs));
+  std::vector<std::int32_t>& ghost_owner_ranks = ghost_data.owners;
+
+  owners.insert(std::end(owners), std::begin(ghost_owner_ranks),
+                std::end(ghost_owner_ranks));
 
   // Compute offsets
   std::vector<std::int32_t> offsets(num_masters_per_slave.size() + 1, 0);
