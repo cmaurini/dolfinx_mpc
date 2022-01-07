@@ -7,7 +7,6 @@
 from typing import List, Tuple
 
 import dolfinx.fem as _fem
-import dolfinx.jit as _jit
 import dolfinx.cpp as _cpp
 import numpy
 import ufl

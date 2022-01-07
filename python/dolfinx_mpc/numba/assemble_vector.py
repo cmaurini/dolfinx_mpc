@@ -8,7 +8,6 @@ from typing import Tuple
 
 import dolfinx.cpp as _cpp
 import dolfinx.log as _log
-import dolfinx.jit as _jit
 import dolfinx.fem as _fem
 import numpy
 import ufl
@@ -104,7 +103,6 @@ def assemble_vector(form: ufl.form.Form, constraint: MultiPointConstraint, b: _P
     # Assemble over cells
     subdomain_ids = cpp_form.integral_ids(_fem.IntegralType.cell)
     num_cell_integrals = len(subdomain_ids)
-    from IPython import embed
 
     is_complex = numpy.issubdtype(_PETSc.ScalarType, numpy.complexfloating)
     nptype = "complex128" if is_complex else "float64"
