@@ -9,7 +9,6 @@ from typing import List, Tuple
 import dolfinx.fem as _fem
 import dolfinx.cpp as _cpp
 import numpy
-import ufl
 from dolfinx.common import Timer
 from dolfinx_mpc.multipointconstraint import MultiPointConstraint
 

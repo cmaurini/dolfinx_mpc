@@ -10,7 +10,6 @@ import dolfinx.cpp as _cpp
 import dolfinx.log as _log
 import dolfinx.fem as _fem
 import numpy
-import ufl
 from dolfinx.common import Timer
 from dolfinx_mpc.multipointconstraint import MultiPointConstraint
 from petsc4py import PETSc as _PETSc

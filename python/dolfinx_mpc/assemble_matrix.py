@@ -9,14 +9,14 @@ from typing import List
 import dolfinx.fem as _fem
 import dolfinx.cpp as _cpp
 
-import ufl
 from dolfinx_mpc import cpp
 from petsc4py import PETSc as _PETSc
 from .multipointconstraint import MultiPointConstraint
 
 
-def assemble_matrix(form: _fem.FormMetaClass, constraint: MultiPointConstraint, bcs: List[_fem.DirichletBCMetaClass] = [],
-                    diagval: _PETSc.ScalarType = 1, A: _PETSc.Mat = None) -> _PETSc.Mat:
+def assemble_matrix(form: _fem.FormMetaClass, constraint: MultiPointConstraint,
+                    bcs: List[_fem.DirichletBCMetaClass] = [], diagval: _PETSc.ScalarType = 1,
+                    A: _PETSc.Mat = None) -> _PETSc.Mat:
     """
     Assemble a compiled DOLFINx bilinear form into a PETSc matrix with corresponding multi point constraints
     and Dirichlet boundary conditions.

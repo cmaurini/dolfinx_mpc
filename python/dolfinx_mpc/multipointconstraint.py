@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier:    MIT
 
-from typing import Callable, List, Union, Dict
+from typing import Callable, List, Dict
 
 
 import numpy
@@ -13,7 +13,6 @@ from petsc4py import PETSc as _PETSc
 import dolfinx_mpc.cpp
 import dolfinx.fem as _fem
 import dolfinx.mesh as _mesh
-from dolfinx.cpp.fem import Form_complex128 as Form_C, Form_float64 as Form_R
 from .dictcondition import create_dictionary_constraint
 from .periodic_condition import create_periodic_condition_topological, create_periodic_condition_geometrical
 

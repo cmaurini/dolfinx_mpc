@@ -4,7 +4,6 @@
 #
 # SPDX-License-Identifier:    MIT
 
-from os import linesep
 import resource
 import sys
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
