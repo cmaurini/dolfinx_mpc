@@ -67,6 +67,8 @@ def test_surface_integrals(get_assemblers):  # noqa: F811
     a = ufl.inner(sigma(u), ufl.grad(v)) * ufl.dx
     rhs = ufl.inner(fem.Constant(mesh, PETSc.ScalarType((0, 0))), v) * ufl.dx\
         + ufl.inner(g, v) * ds
+    bilinear_form = fem.form(a)
+    linear_form = fem.form(rhs)
 
     # Setup LU solver
     solver = PETSc.KSP().create(MPI.COMM_WORLD)
@@ -83,11 +85,11 @@ def test_surface_integrals(get_assemblers):  # noqa: F811
     mpc.create_general_constraint(s_m_c, 1, 1)
     mpc.finalize()
     with Timer("~TEST: Assemble matrix old"):
-        A = assemble_matrix(a, mpc, bcs=bcs)
+        A = assemble_matrix(bilinear_form, mpc, bcs=bcs)
     with Timer("~TEST: Assemble vector"):
-        b = assemble_vector(rhs, mpc)
+        b = assemble_vector(linear_form, mpc)
 
-    dolfinx_mpc.apply_lifting(b, [a], [bcs], mpc)
+    dolfinx_mpc.apply_lifting(b, [bilinear_form], [bcs], mpc)
     b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     fem.set_bc(b, bcs)
 
@@ -110,11 +112,10 @@ def test_surface_integrals(get_assemblers):  # noqa: F811
     # Solve the MPC problem using a global transformation matrix
     # and numpy solvers to get reference values
     # Generate reference matrices and unconstrained solution
-    forms = [fem.form(a), fem.form(rhs)]
-    A_org = fem.assemble_matrix(forms[0], bcs)
+    A_org = fem.assemble_matrix(bilinear_form, bcs)
     A_org.assemble()
-    L_org = fem.assemble_vector(forms[1])
-    fem.apply_lifting(L_org, [forms[0]], [bcs])
+    L_org = fem.assemble_vector(linear_form)
+    fem.apply_lifting(L_org, [bilinear_form], [bcs])
     L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     fem.set_bc(L_org, bcs)
 
@@ -142,7 +143,7 @@ def test_surface_integrals(get_assemblers):  # noqa: F811
     list_timings(comm, [TimingType.wall])
 
 
-@ pytest.mark.parametrize("get_assemblers", ["C++", "numba"], indirect=True)
+@pytest.mark.parametrize("get_assemblers", ["C++", "numba"], indirect=True)
 def test_surface_integral_dependency(get_assemblers):  # noqa: F811
 
     assemble_matrix, assemble_vector = get_assemblers
@@ -171,8 +172,9 @@ def test_surface_integral_dependency(get_assemblers):  # noqa: F811
     u = ufl.TrialFunction(V)
     v = ufl.TestFunction(V)
     a = ufl.inner(u, v) * ds(3) + ufl.inner(ufl.grad(u), ufl.grad(v)) * ds
-
     rhs = ufl.inner(g, v) * ds + ufl.inner(h, v) * ds(3)
+    bilinear_form = fem.form(a)
+    linear_form = fem.form(rhs)
 
     # Create multipoint constraint and assemble system
     def l2b(li):
@@ -184,19 +186,19 @@ def test_surface_integral_dependency(get_assemblers):  # noqa: F811
     mpc.create_general_constraint(s_m_c, 1, 1)
     mpc.finalize()
     with Timer("~TEST: Assemble matrix"):
-        A = assemble_matrix(a, mpc)
+        A = assemble_matrix(bilinear_form, mpc)
     with Timer("~TEST: Assemble vector"):
-        b = assemble_vector(rhs, mpc)
+        b = assemble_vector(linear_form, mpc)
     b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
 
     # Solve the MPC problem using a global transformation matrix
     # and numpy solvers to get reference values
 
     # Generate reference matrices and unconstrained solution
-    A_org = fem.assemble_matrix(fem.form(a))
+    A_org = fem.assemble_matrix(bilinear_form)
     A_org.assemble()
 
-    L_org = fem.assemble_vector(fem.form(rhs))
+    L_org = fem.assemble_vector(linear_form)
     L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
 
     root = 0

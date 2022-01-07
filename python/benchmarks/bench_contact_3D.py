@@ -13,7 +13,7 @@ import numpy as np
 from dolfinx.common import Timer, TimingType, list_timings, timing
 from dolfinx.cpp.mesh import entities_to_geometry
 from dolfinx.fem import (Constant, dirichletbc, Function, VectorFunctionSpace,
-                         locate_dofs_topological, set_bc)
+                         locate_dofs_topological, set_bc, form)
 from dolfinx.io import XDMFFile
 from dolfinx.mesh import (CellType, MeshTags, compute_midpoints, create_mesh,
                           locate_entities_boundary, refine, create_unit_cube)
@@ -246,11 +246,13 @@ def demo_stacked_cubes(theta, ct, noslip, num_refinements, N0, timings=False):
     log_info(f"Num dofs: {num_dofs}")
 
     log_info("Assemble matrix")
+    bilinear_form = form(a)
+    linear_form = form(rhs)
     with Timer(f"{num_dofs}: Assemble-matrix (C++)"):
-        A = assemble_matrix(a, mpc, bcs=bcs)
+        A = assemble_matrix(bilinear_form, mpc, bcs=bcs)
     with Timer(f"{num_dofs}: Assemble-vector (C++)"):
-        b = assemble_vector(rhs, mpc)
-    apply_lifting(b, [a], [bcs], mpc)
+        b = assemble_vector(linear_form, mpc)
+    apply_lifting(b, [bilinear_form], [bcs], mpc)
     b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     set_bc(b, bcs)
     list_timings(MPI.COMM_WORLD, [TimingType.wall])

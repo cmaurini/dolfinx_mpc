@@ -100,6 +100,8 @@ def demo_stacked_cubes(outfile, theta, gmsh: bool = False, ct: CellType = CellTy
     # ds = Measure("ds", domain=mesh, subdomain_data=mt, subdomain_id=3)
     rhs = inner(fem.Constant(mesh, PETSc.ScalarType((0, 0, 0))), v) * dx
     # + inner(g, v) * ds
+    bilinear_form = fem.form(a)
+    linear_form = fem.form(rhs)
 
     mpc = MultiPointConstraint(V)
     if noslip:
@@ -117,11 +119,11 @@ def demo_stacked_cubes(outfile, theta, gmsh: bool = False, ct: CellType = CellTy
     null_space = rigid_motions_nullspace(mpc.function_space)
     num_dofs = V.dofmap.index_map.size_global * V.dofmap.index_map_bs
     with Timer(f"~~Contact: Assemble matrix ({num_dofs})"):
-        A = assemble_matrix(a, mpc, bcs=bcs)
+        A = assemble_matrix(bilinear_form, mpc, bcs=bcs)
     with Timer(f"~~Contact: Assemble vector ({num_dofs})"):
-        b = assemble_vector(rhs, mpc)
+        b = assemble_vector(linear_form, mpc)
 
-    apply_lifting(b, [a], [bcs], mpc)
+    apply_lifting(b, [bilinear_form], [bcs], mpc)
     b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     fem.set_bc(b, bcs)
 
@@ -175,11 +177,10 @@ def demo_stacked_cubes(outfile, theta, gmsh: bool = False, ct: CellType = CellTy
 
     log_info("Solving reference problem with global matrix (using scipy)")
     with Timer("~~Contact: Reference problem"):
-        forms = [fem.form(a), fem.form(rhs)]
-        A_org = fem.assemble_matrix(forms[0], bcs)
+        A_org = fem.assemble_matrix(bilinear_form, bcs)
         A_org.assemble()
-        L_org = fem.assemble_vector(forms[1])
-        fem.apply_lifting(L_org, [forms[0]], [bcs])
+        L_org = fem.assemble_vector(linear_form)
+        fem.apply_lifting(L_org, [bilinear_form], [bcs])
         L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
         fem.set_bc(L_org, bcs)
 

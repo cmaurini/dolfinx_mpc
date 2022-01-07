@@ -124,8 +124,7 @@ class MultiPointConstraint():
     def create_periodic_constraint_geometrical(self, V: _fem.FunctionSpace,
                                                indicator: Callable[[numpy.ndarray], numpy.ndarray],
                                                relation: Callable[[numpy.ndarray], numpy.ndarray],
-                                               bcs: List[_fem.DirichletBCMetaClass], scale: _PETSc.ScalarType = 1,
-                                               subspace: int = None):
+                                               bcs: List[_fem.DirichletBCMetaClass], scale: _PETSc.ScalarType = 1):
         """
         Create a periodic condition for all degrees of freedom whose physical location satisfies indicator(x)
         u(x_i) = scale * u(relation(x_i)) for all x_i where indicator(x_i) == True
@@ -143,7 +142,7 @@ class MultiPointConstraint():
             Float for scaling bc
         """
         slaves, masters, coeffs, owners, offsets = create_periodic_condition_geometrical(
-            self.V, indicator, relation, bcs, scale, subspace)
+            self.V, indicator, relation, bcs, scale)
         self.add_constraint(self.V, slaves, masters, coeffs, owners, offsets)
 
     def create_slip_constraint(self, facet_marker: tuple([_mesh.MeshTags, int]), v: _fem.Function,
@@ -337,17 +336,17 @@ class MultiPointConstraint():
         self._not_finalized()
         return self._cpp_object.cell_to_slaves
 
-    def create_sparsity_pattern(self, cpp_form: Union[Form_C, Form_R]):
+    def create_sparsity_pattern(self, form: _fem.FormMetaClass):
         """
         Create sparsity-pattern for MPC given a compiled DOLFINx form
 
         Parameters
         ----------
-        cpp_form
+        form
             The form
         """
         self._not_finalized()
-        return dolfinx_mpc.cpp.mpc.create_sparsity_pattern(cpp_form, self._cpp_object)
+        return dolfinx_mpc.cpp.mpc.create_sparsity_pattern(form, self._cpp_object)
 
     @property
     def function_space(self):

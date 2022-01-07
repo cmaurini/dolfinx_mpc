@@ -18,7 +18,7 @@ from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 import h5py
 import numpy as np
 from dolfinx.common import Timer, TimingType, list_timings
-from dolfinx.fem import (dirichletbc, Function, FunctionSpace,
+from dolfinx.fem import (Function, FunctionSpace, dirichletbc, form,
                          locate_dofs_geometrical, set_bc)
 from dolfinx.io import XDMFFile
 from dolfinx.mesh import (CellType, MeshTags, create_unit_cube,
@@ -90,14 +90,14 @@ def demo_periodic3D(tetra, r_lvl=0, out_hdf5=None,
     # Assemble LHS and RHS with multi-point constraint
 
     log_info(f"Run {r_lvl}: Assemble matrix")
-    with Timer(f"~Periodic {r_lvl}: Assemble matrix"):
-        A = assemble_matrix(a, mpc, bcs=bcs)
+    bilinear_form = form(a)
     with Timer(f"~Periodic {r_lvl}: Assemble matrix (cached)"):
-        A = assemble_matrix(a, mpc, bcs=bcs)
+        A = assemble_matrix(bilinear_form, mpc, bcs=bcs)
 
     log_info(f"Run {r_lvl}: Assembling vector")
+    linear_form = form(rhs)
     with Timer(f"~Periodic: {r_lvl} Assemble vector (Total time)"):
-        b = assemble_vector(rhs, mpc)
+        b = assemble_vector(linear_form, mpc)
 
     # Apply boundary conditions
     log_info(f"Run {r_lvl}: Apply lifting")
