@@ -101,7 +101,7 @@ def demo_periodic3D(tetra, r_lvl=0, out_hdf5=None,
 
     # Apply boundary conditions
     log_info(f"Run {r_lvl}: Apply lifting")
-    apply_lifting(b, [a], [bcs], mpc)
+    apply_lifting(b, [bilinear_form], [bcs], mpc)
     b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     set_bc(b, bcs)
 
