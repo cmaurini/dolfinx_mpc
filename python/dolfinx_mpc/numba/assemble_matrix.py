@@ -12,8 +12,8 @@ import dolfinx.cpp as _cpp
 import numpy
 import ufl
 from dolfinx.common import Timer
-from dolfinx_mpc.multipointconstraint import (MultiPointConstraint,
-                                              cpp_dirichletbc)
+from dolfinx_mpc.multipointconstraint import MultiPointConstraint
+
 from petsc4py import PETSc as _PETSc
 
 import numba
@@ -27,7 +27,7 @@ ffi, set_values_local = initialize_petsc()
 
 
 def assemble_matrix(form: ufl.form.Form, constraint: MultiPointConstraint,
-                    bcs: List[_fem.DirichletBC] = None, diagval=1, A: _PETSc.Mat = None,
+                    bcs: List[_fem.DirichletBCMetaClass] = None, diagval=1, A: _PETSc.Mat = None,
                     form_compiler_parameters: dict = None, jit_parameters: dict = None):
     """
     Assembles a ufl form given a multi point constraint and possible
@@ -78,7 +78,7 @@ def assemble_matrix(form: ufl.form.Form, constraint: MultiPointConstraint,
     is_bc = numpy.zeros(num_dofs_local, dtype=bool)
     bcs = [] if bcs is None else bcs
     if len(bcs) > 0:
-        for bc in cpp_dirichletbc(bcs):
+        for bc in bcs:
             is_bc[bc.dof_indices()[0]] = True
 
     # Get data from mesh
@@ -86,22 +86,12 @@ def assemble_matrix(form: ufl.form.Form, constraint: MultiPointConstraint,
     x_dofs = V.mesh.geometry.dofmap.array
     x = V.mesh.geometry.x
 
-    # If using DOLFINx complex build, scalar type in form_compiler parameters must be updated
-    is_complex = numpy.issubdtype(_PETSc.ScalarType, numpy.complexfloating)
-
+    # Generate matrix with MPC sparsity pattern
     form_compiler_parameters = {} if form_compiler_parameters is None else form_compiler_parameters
     jit_parameters = {} if jit_parameters is None else jit_parameters
-    if is_complex:
-        form_compiler_parameters["scalar_type"] = "double _Complex"
-
-    # Generate ufc_form
-    ufc_form, _, _ = _jit.ffcx_jit(V.mesh.comm, form,
-                                   form_compiler_parameters=form_compiler_parameters,
-                                   jit_parameters=jit_parameters)
-
-    # Generate matrix with MPC sparsity pattern
-    cpp_form = _fem.Form(form, form_compiler_parameters=form_compiler_parameters,
-                         jit_parameters=jit_parameters)._cpp_object
+    cpp_form = _fem.form(form, form_compiler_parameters=form_compiler_parameters,
+                         jit_parameters=jit_parameters)
+    ufc_form = cpp_form.ufc_form
 
     # Pack constants and coefficients
     form_coeffs = _cpp.fem.pack_coefficients(cpp_form)
@@ -109,14 +99,13 @@ def assemble_matrix(form: ufl.form.Form, constraint: MultiPointConstraint,
 
     # Create sparsity pattern and matrix if not supplied
     if A is None:
-
         pattern = constraint.create_sparsity_pattern(cpp_form)
         pattern.assemble()
         A = _cpp.la.petsc.create_matrix(V.mesh.comm, pattern)
     A.zeroEntries()
 
     # Assemble the matrix with all entries
-    _cpp.fem.petsc.assemble_matrix(A, cpp_form, form_consts, form_coeffs, cpp_dirichletbc(bcs), False)
+    _cpp.fem.petsc.assemble_matrix(A, cpp_form, form_consts, form_coeffs, bcs, False)
 
     # General assembly data
     block_size = dofmap.dof_layout.block_size()
@@ -143,6 +132,7 @@ def assemble_matrix(form: ufl.form.Form, constraint: MultiPointConstraint,
     if e0.needs_dof_transformations or e1.needs_dof_transformations:
         raise NotImplementedError("Dof transformations not implemented")
 
+    is_complex = numpy.issubdtype(_PETSc.ScalarType, numpy.complexfloating)
     nptype = "complex128" if is_complex else "float64"
     if num_cell_integrals > 0:
         V.mesh.topology.create_entity_permutations()
@@ -186,11 +176,11 @@ def assemble_matrix(form: ufl.form.Form, constraint: MultiPointConstraint,
     add_diagonal(A.handle, slaves[:num_local_slaves], diagval)
 
     # Add one on diagonal for diriclet bc and slave dofs
-    # NOTE: In the future one could use a constant in the DirichletBC
+    # NOTE: In the future one could use a constant in the dirichletbc
     if cpp_form.function_spaces[0].id == cpp_form.function_spaces[1].id:
         A.assemblyBegin(_PETSc.Mat.AssemblyType.FLUSH)
         A.assemblyEnd(_PETSc.Mat.AssemblyType.FLUSH)
-        _cpp.fem.petsc.insert_diagonal(A, cpp_form.function_spaces[0], cpp_dirichletbc(bcs), diagval)
+        _cpp.fem.petsc.insert_diagonal(A, cpp_form.function_spaces[0], bcs, diagval)
 
     A.assemble()
     timer_matrix.stop()

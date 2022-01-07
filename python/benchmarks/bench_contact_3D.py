@@ -12,7 +12,7 @@ from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 import numpy as np
 from dolfinx.common import Timer, TimingType, list_timings, timing
 from dolfinx.cpp.mesh import entities_to_geometry
-from dolfinx.fem import (Constant, DirichletBC, Function, VectorFunctionSpace,
+from dolfinx.fem import (Constant, dirichletbc, Function, VectorFunctionSpace,
                          locate_dofs_topological, set_bc)
 from dolfinx.io import XDMFFile
 from dolfinx.mesh import (CellType, MeshTags, compute_midpoints, create_mesh,
@@ -186,7 +186,7 @@ def demo_stacked_cubes(theta, ct, noslip, num_refinements, N0, timings=False):
 
     bottom_facets = mt.indices[np.flatnonzero(mt.values == 5)]
     bottom_dofs = locate_dofs_topological(V, fdim, bottom_facets)
-    bc_bottom = DirichletBC(u_bc, bottom_dofs)
+    bc_bottom = dirichletbc(u_bc, bottom_dofs)
 
     g_vec = [0, 0, -4.25e-1]
     if not noslip:
@@ -208,7 +208,7 @@ def demo_stacked_cubes(theta, ct, noslip, num_refinements, N0, timings=False):
 
     top_facets = mt.indices[mt.values == 3]
     top_dofs = locate_dofs_topological(V, fdim, top_facets)
-    bc_top = DirichletBC(u_top, top_dofs)
+    bc_top = dirichletbc(u_top, top_dofs)
 
     bcs = [bc_bottom, bc_top]
 

@@ -18,7 +18,7 @@ from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 import numpy as np
 import scipy.sparse.linalg
 from dolfinx.common import Timer, TimingType, list_timings
-from dolfinx.fem import (Constant, DirichletBC, VectorFunctionSpace,
+from dolfinx.fem import (Constant, dirichletbc, VectorFunctionSpace,
                          assemble_matrix, assemble_vector, apply_lifting,
                          locate_dofs_geometrical, set_bc)
 from dolfinx.io import XDMFFile
@@ -76,7 +76,7 @@ def demo_stacked_cubes(outfile, theta, gmsh=True, quad=False, compare=False, res
     # Fix bottom corner
     bc_value = np.array((0,) * mesh.geometry.dim, dtype=PETSc.ScalarType)
     bottom_dofs = locate_dofs_geometrical(V, bottom_corner)
-    bc_bottom = DirichletBC(bc_value, bottom_dofs, V)
+    bc_bottom = dirichletbc(bc_value, bottom_dofs, V)
     bcs = [bc_bottom]
 
     # Elasticity parameters

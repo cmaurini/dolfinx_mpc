@@ -18,7 +18,7 @@ from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 import h5py
 import numpy as np
 from dolfinx.common import Timer, TimingType, list_timings
-from dolfinx.fem import (DirichletBC, Function, FunctionSpace,
+from dolfinx.fem import (dirichletbc, Function, FunctionSpace,
                          locate_dofs_geometrical, set_bc)
 from dolfinx.io import XDMFFile
 from dolfinx.mesh import (CellType, MeshTags, create_unit_cube,
@@ -46,9 +46,6 @@ def demo_periodic3D(tetra, r_lvl=0, out_hdf5=None,
     V = FunctionSpace(mesh, ("CG", degree))
 
     # Create Dirichlet boundary condition
-    u_bc = Function(V)
-    with u_bc.vector.localForm() as u_local:
-        u_local.set(0.0)
 
     def dirichletboundary(x):
         return np.logical_or(np.logical_or(np.isclose(x[1], 0), np.isclose(x[1], 1)),
@@ -56,7 +53,7 @@ def demo_periodic3D(tetra, r_lvl=0, out_hdf5=None,
 
     mesh.topology.create_connectivity(2, 1)
     geometrical_dofs = locate_dofs_geometrical(V, dirichletboundary)
-    bc = DirichletBC(u_bc, geometrical_dofs)
+    bc = dirichletbc(PETSc.ScalarType(0), geometrical_dofs, V)
     bcs = [bc]
 
     def PeriodicBoundary(x):

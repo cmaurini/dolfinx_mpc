@@ -21,7 +21,7 @@ class LinearProblem(fem.LinearProblem):
 
     """
 
-    def __init__(self, a: ufl.Form, L: ufl.Form, mpc: MultiPointConstraint, bcs: typing.List[fem.DirichletBC] = None,
+    def __init__(self, a: ufl.Form, L: ufl.Form, mpc: MultiPointConstraint, bcs: typing.List[fem.dirichletbc] = None,
                  petsc_options: dict = None, form_compiler_parameters: dict = None, jit_parameters: dict = None):
         """Initialize solver for a linear variational problem.
 
@@ -74,8 +74,8 @@ class LinearProblem(fem.LinearProblem):
         self.u = fem.Function(self._mpc.function_space)
 
         # NOTE: This is a workaround for only creating sparsity pattern once
-        a_cpp = fem.Form(a, form_compiler_parameters=self._form_compiler_parameters,
-                         jit_parameters=self._jit_parameters)._cpp_object
+        a_cpp = fem.form(a, form_compiler_parameters=self._form_compiler_parameters,
+                         jit_parameters=self._jit_parameters)
 
         # Create MPC matrix
         pattern = self._mpc.create_sparsity_pattern(a_cpp)

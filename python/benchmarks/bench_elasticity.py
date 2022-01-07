@@ -11,7 +11,7 @@ from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 import h5py
 import numpy as np
 from dolfinx.common import Timer, TimingType, list_timings
-from dolfinx.fem import (Constant, DirichletBC, Function, VectorFunctionSpace,
+from dolfinx.fem import (Constant, dirichletbc, Function, VectorFunctionSpace,
                          locate_dofs_topological, set_bc)
 from dolfinx.io import XDMFFile
 from dolfinx.mesh import (MeshTags, create_unit_cube, locate_entities_boundary,
@@ -45,7 +45,7 @@ def bench_elasticity_one(r_lvl: int = 0, out_hdf5: h5py.File = None,
         return np.isclose(x[0], np.finfo(float).eps)
     facets = locate_entities_boundary(mesh, fdim, boundaries)
     topological_dofs = locate_dofs_topological(V, fdim, facets)
-    bc = DirichletBC(u_bc, topological_dofs)
+    bc = dirichletbc(u_bc, topological_dofs)
     bcs = [bc]
 
     # Create traction meshtag

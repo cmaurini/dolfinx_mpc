@@ -65,7 +65,7 @@ def demo_stacked_cubes(outfile, theta, gmsh: bool = False, ct: CellType = CellTy
     bottom_facets = mt.indices[np.flatnonzero(mt.values == 5)]
     bottom_dofs = fem.locate_dofs_topological(V, fdim, bottom_facets)
     u_bc = np.array((0, ) * mesh.geometry.dim, dtype=PETSc.ScalarType)
-    bc_bottom = fem.DirichletBC(u_bc, bottom_dofs, V)
+    bc_bottom = fem.dirichletbc(u_bc, bottom_dofs, V)
 
     g_vec = np.array([0, 0, -4.25e-1], dtype=PETSc.ScalarType)
     if not noslip:
@@ -77,7 +77,7 @@ def demo_stacked_cubes(outfile, theta, gmsh: bool = False, ct: CellType = CellTy
 
     top_facets = mt.indices[np.flatnonzero(mt.values == 3)]
     top_dofs = fem.locate_dofs_topological(V, fdim, top_facets)
-    bc_top = fem.DirichletBC(g_vec, top_dofs, V)
+    bc_top = fem.dirichletbc(g_vec, top_dofs, V)
 
     bcs = [bc_bottom, bc_top]
 
@@ -175,10 +175,11 @@ def demo_stacked_cubes(outfile, theta, gmsh: bool = False, ct: CellType = CellTy
 
     log_info("Solving reference problem with global matrix (using scipy)")
     with Timer("~~Contact: Reference problem"):
-        A_org = fem.assemble_matrix(a, bcs)
+        forms = [fem.form(a), fem.form(rhs)]
+        A_org = fem.assemble_matrix(forms[0], bcs)
         A_org.assemble()
-        L_org = fem.assemble_vector(rhs)
-        fem.apply_lifting(L_org, [a], [bcs])
+        L_org = fem.assemble_vector(forms[1])
+        fem.apply_lifting(L_org, [forms[0]], [bcs])
         L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
         fem.set_bc(L_org, bcs)
 

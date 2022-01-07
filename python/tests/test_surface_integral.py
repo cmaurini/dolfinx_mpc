@@ -38,7 +38,7 @@ def test_surface_integrals(get_assemblers):  # noqa: F811
     u_bc = fem.Function(V)
     with u_bc.vector.localForm() as u_local:
         u_local.set(0.0)
-    bc = fem.DirichletBC(u_bc, bc_dofs)
+    bc = fem.dirichletbc(u_bc, bc_dofs)
     bcs = [bc]
 
     # Traction on top of domain
@@ -110,10 +110,11 @@ def test_surface_integrals(get_assemblers):  # noqa: F811
     # Solve the MPC problem using a global transformation matrix
     # and numpy solvers to get reference values
     # Generate reference matrices and unconstrained solution
-    A_org = fem.assemble_matrix(a, bcs)
+    forms = [fem.form(a), fem.form(rhs)]
+    A_org = fem.assemble_matrix(forms[0], bcs)
     A_org.assemble()
-    L_org = fem.assemble_vector(rhs)
-    fem.apply_lifting(L_org, [a], [bcs])
+    L_org = fem.assemble_vector(forms[1])
+    fem.apply_lifting(L_org, [forms[0]], [bcs])
     L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     fem.set_bc(L_org, bcs)
 
@@ -141,7 +142,7 @@ def test_surface_integrals(get_assemblers):  # noqa: F811
     list_timings(comm, [TimingType.wall])
 
 
-@pytest.mark.parametrize("get_assemblers", ["C++", "numba"], indirect=True)
+@ pytest.mark.parametrize("get_assemblers", ["C++", "numba"], indirect=True)
 def test_surface_integral_dependency(get_assemblers):  # noqa: F811
 
     assemble_matrix, assemble_vector = get_assemblers
@@ -192,10 +193,10 @@ def test_surface_integral_dependency(get_assemblers):  # noqa: F811
     # and numpy solvers to get reference values
 
     # Generate reference matrices and unconstrained solution
-    A_org = fem.assemble_matrix(a)
+    A_org = fem.assemble_matrix(fem.form(a))
     A_org.assemble()
 
-    L_org = fem.assemble_vector(rhs)
+    L_org = fem.assemble_vector(fem.form(rhs))
     L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
 
     root = 0

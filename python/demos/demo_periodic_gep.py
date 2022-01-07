@@ -215,7 +215,7 @@ def dirichletboundary(x):
 fdim = mesh.topology.dim - 1
 facets = locate_entities_boundary(mesh, fdim, dirichletboundary)
 topological_dofs = fem.locate_dofs_topological(V, fdim, facets)
-bc = fem.DirichletBC(u_bc, topological_dofs)
+bc = fem.dirichletbc(u_bc, topological_dofs)
 bcs = [bc]
 
 

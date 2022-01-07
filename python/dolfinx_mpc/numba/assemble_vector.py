@@ -32,7 +32,7 @@ def assemble_vector(form: ufl.form.Form, constraint: MultiPointConstraint, b: _P
     Parameters
     ----------
     form
-        The bilinear variational form
+        The linear variational form
     constraint
         The multi point constraint
     b
@@ -77,21 +77,12 @@ def assemble_vector(form: ufl.form.Form, constraint: MultiPointConstraint, b: _P
     else:
         vector = b
 
-    # If using DOLFINx complex build, scalar type in form_compiler parameters must be updated
-    is_complex = numpy.issubdtype(_PETSc.ScalarType, numpy.complexfloating)
+    # Pack constants and coefficients
     form_compiler_parameters = {} if form_compiler_parameters is None else form_compiler_parameters
     jit_parameters = {} if jit_parameters is None else jit_parameters
-    if is_complex:
-        form_compiler_parameters["scalar_type"] = "double _Complex"
-
-    # Compile ufc form for Python assembly
-    ufc_form, _, _ = _jit.ffcx_jit(V.mesh.comm, form,
-                                   form_compiler_parameters=form_compiler_parameters,
-                                   jit_parameters=jit_parameters)
-
-    # Pack constants and coefficients
-    cpp_form = _fem.Form(form, form_compiler_parameters=form_compiler_parameters,
-                         jit_parameters=jit_parameters)._cpp_object
+    cpp_form = _fem.form(form, form_compiler_parameters=form_compiler_parameters,
+                         jit_parameters=jit_parameters)
+    ufc_form = cpp_form.ufc_form
     form_coeffs = _cpp.fem.pack_coefficients(cpp_form)
     form_consts = _cpp.fem.pack_constants(cpp_form)
     tdim = V.mesh.topology.dim
@@ -113,6 +104,9 @@ def assemble_vector(form: ufl.form.Form, constraint: MultiPointConstraint, b: _P
     # Assemble over cells
     subdomain_ids = cpp_form.integral_ids(_fem.IntegralType.cell)
     num_cell_integrals = len(subdomain_ids)
+    from IPython import embed
+
+    is_complex = numpy.issubdtype(_PETSc.ScalarType, numpy.complexfloating)
     nptype = "complex128" if is_complex else "float64"
     if num_cell_integrals > 0:
         V.mesh.topology.create_entity_permutations()

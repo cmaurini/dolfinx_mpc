@@ -12,10 +12,10 @@ import dolfinx.cpp as _cpp
 import ufl
 from dolfinx_mpc import cpp
 from petsc4py import PETSc as _PETSc
-from .multipointconstraint import MultiPointConstraint, cpp_dirichletbc
+from .multipointconstraint import MultiPointConstraint
 
 
-def assemble_matrix(form: ufl.form.Form, constraint: MultiPointConstraint, bcs: List[_fem.DirichletBC] = [],
+def assemble_matrix(form: ufl.form.Form, constraint: MultiPointConstraint, bcs: List[_fem.DirichletBCMetaClass] = [],
                     diagval: _PETSc.ScalarType = 1, A: _PETSc.Mat = None,
                     form_compiler_parameters={}, jit_parameters={}) -> _PETSc.Mat:
     """
@@ -52,8 +52,8 @@ def assemble_matrix(form: ufl.form.Form, constraint: MultiPointConstraint, bcs: 
     """
     assert(form.arguments()[0].ufl_function_space() == form.arguments()[1].ufl_function_space())
 
-    cpp_form = _fem.Form(form, form_compiler_parameters=form_compiler_parameters,
-                         jit_parameters=jit_parameters)._cpp_object
+    cpp_form = _fem.form(form, form_compiler_parameters=form_compiler_parameters,
+                         jit_parameters=jit_parameters)
 
     # Generate matrix with MPC sparsity pattern
     if A is None:
@@ -61,14 +61,13 @@ def assemble_matrix(form: ufl.form.Form, constraint: MultiPointConstraint, bcs: 
     A.zeroEntries()
 
     # Assemble matrix in C++
-    cpp_bc = cpp_dirichletbc(bcs)
-    cpp.mpc.assemble_matrix(A, cpp_form, constraint._cpp_object, cpp_bc, diagval)
+    cpp.mpc.assemble_matrix(A, cpp_form, constraint._cpp_object, bcs, diagval)
 
     # Add one on diagonal for Dirichlet boundary conditions
     if cpp_form.function_spaces[0].id == cpp_form.function_spaces[1].id:
         A.assemblyBegin(_PETSc.Mat.AssemblyType.FLUSH)
         A.assemblyEnd(_PETSc.Mat.AssemblyType.FLUSH)
-        _cpp.fem.petsc.insert_diagonal(A, cpp_form.function_spaces[0], cpp_bc, diagval)
+        _cpp.fem.petsc.insert_diagonal(A, cpp_form.function_spaces[0], bcs, diagval)
 
     A.assemble()
     return A

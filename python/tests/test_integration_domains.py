@@ -56,9 +56,9 @@ def test_cell_domains(get_assemblers):  # noqa: F811
         ufl.inner(fem.Constant(mesh, PETSc.ScalarType(1)), v) * dx(2)
 
     # Generate reference matrices
-    A_org = fem.assemble_matrix(a)
+    A_org = fem.assemble_matrix(fem.form(a))
     A_org.assemble()
-    L_org = fem.assemble_vector(rhs)
+    L_org = fem.assemble_vector(fem.form(rhs))
     L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
 
     def l2b(li):

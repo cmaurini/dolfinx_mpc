@@ -10,26 +10,13 @@ import dolfinx.cpp as _cpp
 import ufl
 import numpy
 import dolfinx_mpc.cpp
-from .multipointconstraint import MultiPointConstraint, cpp_dirichletbc
+from .multipointconstraint import MultiPointConstraint
 from petsc4py import PETSc as _PETSc
 import contextlib
 from dolfinx.common import Timer
 
 
-def cpp_form(form, form_compiler_parameters={}, jit_parameters={}):
-    """Recursively look for ufl.Forms and convert to
-    dolfinx.cpp.fem.Form, otherwise return form argument"""
-    if isinstance(form, _fem.Form):
-        return form._cpp_object
-    elif isinstance(form, ufl.Form):
-        return _fem.Form(form, form_compiler_parameters=form_compiler_parameters,
-                         jit_parameters=jit_parameters)._cpp_object
-    elif isinstance(form, (tuple, list)):
-        return list(map(lambda sub_form: cpp_form(sub_form), form))
-    return form
-
-
-def apply_lifting(b: _PETSc.Vec, form: List[ufl.form.Form], bcs: List[List[_fem.DirichletBC]],
+def apply_lifting(b: _PETSc.Vec, form: List[ufl.form.Form], bcs: List[List[_fem.DirichletBCMetaClass]],
                   constraint: MultiPointConstraint, x0: Optional[List[_PETSc.Vec]] = [],
                   scale: numpy.float64 = 1.0, form_compiler_parameters={}, jit_parameters={}):
     """
@@ -67,14 +54,14 @@ def apply_lifting(b: _PETSc.Vec, form: List[ufl.form.Form], bcs: List[List[_fem.
     PETSc.Vec
         The assembled linear form
     """
-    _cpp_form = cpp_form(form, form_compiler_parameters=form_compiler_parameters, jit_parameters=jit_parameters)
+    _cpp_form = _fem.form(form, form_compiler_parameters=form_compiler_parameters, jit_parameters=jit_parameters)
     t = Timer("~MPC: Apply lifting (C++)")
     with contextlib.ExitStack() as stack:
         x0 = [stack.enter_context(x.localForm()) for x in x0]
         x0_r = [x.array_r for x in x0]
         b_local = stack.enter_context(b.localForm())
         dolfinx_mpc.cpp.mpc.apply_lifting(b_local.array_w, _cpp_form,
-                                          cpp_dirichletbc(bcs), x0_r, scale, constraint._cpp_object)
+                                          bcs, x0_r, scale, constraint._cpp_object)
     t.stop()
 
 
@@ -108,9 +95,8 @@ def assemble_vector(form: ufl.form.Form, constraint: MultiPointConstraint,
         The assembled linear form
     """
 
-    cpp_form = _fem.Form(form, form_compiler_parameters=form_compiler_parameters,
-                         jit_parameters=jit_parameters)._cpp_object
-
+    cpp_form = _fem.form(form, form_compiler_parameters=form_compiler_parameters,
+                         jit_parameters=jit_parameters)
     if b is None:
         b = _cpp.la.petsc.create_vector(constraint.function_space.dofmap.index_map,
                                         constraint.function_space.dofmap.index_map_bs)

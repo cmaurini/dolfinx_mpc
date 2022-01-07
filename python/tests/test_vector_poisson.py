@@ -40,7 +40,7 @@ def test_vector_possion(Nx, Ny, slave_space, master_space, get_assemblers):  # n
         u_local.set(0.0)
 
     bdofsV = fem.locate_dofs_geometrical(V, boundary)
-    bc = fem.DirichletBC(u_bc, bdofsV)
+    bc = fem.dirichletbc(u_bc, bdofsV)
     bcs = [bc]
 
     # Define variational problem
@@ -83,11 +83,13 @@ def test_vector_possion(Nx, Ny, slave_space, master_space, get_assemblers):  # n
     mpc.backsubstitution(uh)
 
     # Generate reference matrices for unconstrained problem
-    A_org = fem.assemble_matrix(a, bcs)
+    forms = [fem.form(a), fem.form(rhs)]
+
+    A_org = fem.assemble_matrix(forms[0], bcs)
     A_org.assemble()
 
-    L_org = fem.assemble_vector(rhs)
-    fem.apply_lifting(L_org, [a], [bcs])
+    L_org = fem.assemble_vector(forms[1])
+    fem.apply_lifting(L_org, [forms[0]], [bcs])
     L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     fem.set_bc(L_org, bcs)
 

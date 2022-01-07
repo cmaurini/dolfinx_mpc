@@ -47,7 +47,7 @@ def test_mpc_assembly(master_point, degree, celltype, get_assemblers):  # noqa: 
 
     with Timer("~TEST: Compare with numpy"):
         # Create globally reduced system
-        A_org = fem.assemble_matrix(a)
+        A_org = fem.assemble_matrix(fem.form(a))
         A_org.assemble()
         dolfinx_mpc.utils.compare_mpc_lhs(A_org, A_mpc, mpc)
 
@@ -86,7 +86,7 @@ def test_slave_on_same_cell(master_point, degree, celltype, get_assemblers):  # 
 
     with Timer("~TEST: Compare with numpy"):
         # Create globally reduced system
-        A_org = fem.assemble_matrix(a)
+        A_org = fem.assemble_matrix(fem.form(a))
         A_org.assemble()
         dolfinx_mpc.utils.compare_mpc_lhs(A_org, A_mpc, mpc)
 

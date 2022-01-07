@@ -49,14 +49,15 @@ def test_lifting(get_assemblers):  # noqa: F811
 
     mesh.topology.create_connectivity(2, 1)
     geometrical_dofs = fem.locate_dofs_geometrical(V, dirichletboundary)
-    bc = fem.DirichletBC(u_bc, geometrical_dofs)
+    bc = fem.dirichletbc(u_bc, geometrical_dofs)
     bcs = [bc]
 
     # Generate reference matrices
-    A_org = fem.assemble_matrix(a, bcs=bcs)
+    forms = [fem.form(a), fem.form(rhs)]
+    A_org = fem.assemble_matrix(forms[0], bcs=bcs)
     A_org.assemble()
-    L_org = fem.assemble_vector(rhs)
-    fem.apply_lifting(L_org, [a], [bcs])
+    L_org = fem.assemble_vector(forms[1])
+    fem.apply_lifting(L_org, [forms[0]], [bcs])
     L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     fem.set_bc(L_org, bcs)
 

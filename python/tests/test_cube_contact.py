@@ -183,7 +183,7 @@ def test_cube_contact(generate_hex_boxes, nonslip, get_assemblers):  # noqa: F81
 
     bottom_facets = mt.indices[np.flatnonzero(mt.values == 5)]
     bottom_dofs = fem.locate_dofs_topological(V, fdim, bottom_facets)
-    bc_bottom = fem.DirichletBC(u_bc, bottom_dofs)
+    bc_bottom = fem.dirichletbc(u_bc, bottom_dofs)
 
     g_vec = [0, 0, -4.25e-1]
     if not nonslip:
@@ -206,7 +206,7 @@ def test_cube_contact(generate_hex_boxes, nonslip, get_assemblers):  # noqa: F81
 
     top_facets = mt.indices[np.flatnonzero(mt.values == 3)]
     top_dofs = fem.locate_dofs_topological(V, fdim, top_facets)
-    bc_top = fem.DirichletBC(u_top, top_dofs)
+    bc_top = fem.dirichletbc(u_top, top_dofs)
 
     bcs = [bc_bottom, bc_top]
 
@@ -277,12 +277,11 @@ def test_cube_contact(generate_hex_boxes, nonslip, get_assemblers):  # noqa: F81
     dolfinx_mpc.utils.log_info("Solving reference problem with global matrix (using numpy)")
 
     with Timer("~TEST: Assemble bilinear form (unconstrained)"):
-        A_org = fem.assemble_matrix(a, bcs)
+        forms = [fem.form(a), fem.form(rhs)]
+        A_org = fem.assemble_matrix(forms[0], bcs)
         A_org.assemble()
-
-        # Generate reference matrices and unconstrained solution
-        L_org = fem.assemble_vector(rhs)
-        fem.apply_lifting(L_org, [a], [bcs])
+        L_org = fem.assemble_vector(forms[1])
+        fem.apply_lifting(L_org, [forms[0]], [bcs])
         L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
         fem.set_bc(L_org, bcs)
 
