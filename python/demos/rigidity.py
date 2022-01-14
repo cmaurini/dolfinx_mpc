@@ -1,25 +1,13 @@
-from IPython import embed
 import dolfinx.fem as fem
 import dolfinx_mpc.utils
 import numpy as np
-
-from dolfinx.common import Timer, list_timings, TimingType
-from dolfinx.mesh import create_unit_square
+from dolfinx.common import Timer, TimingType, list_timings
 from dolfinx.io import XDMFFile
-from dolfinx.mesh import locate_entities_boundary
+from dolfinx.mesh import create_unit_square, locate_entities_boundary
 from mpi4py import MPI
 from petsc4py import PETSc
-from ufl import (Identity,
-                 SpatialCoordinate,
-                 TestFunction,
-                 TrialFunction,
-                 as_vector,
-                 dx,
-                 grad,
-                 inner,
-                 sym,
-                 tr
-                 )
+from ufl import (Identity, SpatialCoordinate, TestFunction, TrialFunction,
+                 as_vector, dx, grad, inner, sym, tr)
 
 N = 10
 mesh = create_unit_square(MPI.COMM_WORLD, N, N)
@@ -38,7 +26,7 @@ def left_boundary(x):
 
 left_facets = locate_entities_boundary(mesh, 1, left_boundary)
 topological_dofs = fem.locate_dofs_topological(V, 1, left_facets)
-bc = fem.DirichletBC(u_bc, topological_dofs)
+bc = fem.dirichletvc(u_bc, topological_dofs)
 bcs = [bc]
 
 # Define variational problem
