@@ -139,7 +139,7 @@ class MultiPointConstraint():
         scale
             Float for scaling bc
         """
-        mpc_data = dolfinx_mpc.cpp.mpc.create_periodic_constraint(
+        mpc_data = dolfinx_mpc.cpp.mpc.create_periodic_constraint_geometrical(
             self.V._cpp_object, indicator, relation, bcs, 1)
         self.add_constraint_from_mpc_data(self.V, mpc_data=mpc_data)
 

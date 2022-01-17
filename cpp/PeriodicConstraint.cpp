@@ -25,9 +25,9 @@ namespace
 /// mesh
 /// @param[in] points The points to check collision with, shape (num_points, 3)
 std::vector<std::int32_t>
-find_local_collisions(std::shared_ptr<const dolfinx::mesh::Mesh>& mesh,
-                      dolfinx::geometry::BoundingBoxTree& tree,
-                      xt::xtensor<double, 2>& points)
+find_local_collisions(const std::shared_ptr<const dolfinx::mesh::Mesh> mesh,
+                      const dolfinx::geometry::BoundingBoxTree& tree,
+                      const xt::xtensor<double, 2>& points)
 {
   assert(points.shape(1) == 3);
 
@@ -154,8 +154,6 @@ tabulate_dof_coordinates(std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
   xt::xtensor<double, 2> x = xt::zeros<double>({scalar_dofs, gdim});
   xt::xtensor<double, 2> coordinate_dofs({num_dofs_g, gdim});
 
-  const int num_cells = cells.size();
-
   xtl::span<const std::uint32_t> cell_info;
   if (element->needs_dof_transformations())
   {
@@ -171,8 +169,7 @@ tabulate_dof_coordinates(std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
 
   const xt::xtensor<double, 2> phi
       = xt::view(cmap.tabulate(0, X), 0, xt::all(), xt::all(), 0);
-
-  for (int c = 0; c < num_cells; ++c)
+  for (std::size_t c = 0; c < cells.size(); ++c)
   {
     // Extract cell geometry
     auto x_dofs = x_dofmap.links(cells[c]);
@@ -183,10 +180,10 @@ tabulate_dof_coordinates(std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
     }
 
     // Tabulate dof coordinates on cell
-    cmap.push_forward(x, coordinate_dofs, phi);
+    dolfinx::fem::CoordinateElement::push_forward(x, coordinate_dofs, phi);
     apply_dof_transformation(xtl::span(x.data(), x.size()),
-                             xtl::span(cell_info.data(), cell_info.size()), c,
-                             x.shape(1));
+                             xtl::span(cell_info.data(), cell_info.size()),
+                             (std::int32_t)c, (int)x.shape(1));
 
     // Get cell dofmap
     auto cell_dofs = dofmap->cell_dofs(cells[c]);
@@ -209,9 +206,10 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
         relation,
     double scale)
 {
-  const std::size_t value_size
+
+  if (const std::size_t value_size
       = V->element()->value_size() / V->element()->block_size();
-  if (value_size > 1)
+      value_size > 1)
     throw std::runtime_error(
         "Periodic conditions for vector valued spaces are not implemented");
 
@@ -228,9 +226,9 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
 
   // Get info about cells owned by the process
   const int tdim = mesh->topology().dim();
-  auto cell_map = mesh->topology().index_map(tdim);
-  const int num_cells_local = cell_map->size_local();
-  const int num_ghost_cells = cell_map->num_ghosts();
+  auto cell_imap = mesh->topology().index_map(tdim);
+  const int num_cells_local = cell_imap->size_local();
+  const int num_ghost_cells = cell_imap->num_ghosts();
 
   // Only work with local blocks
   std::vector<std::int32_t> local_blocks;
@@ -272,8 +270,9 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
     }
 
     // Populate map from slaves to corresponding cell (choose first cell in map)
-    for (std::size_t i = 0; i < local_blocks.size(); i++)
-      slave_cells.push_back(cell_map[cell_dofs_disp[local_blocks[i]]]);
+    std::for_each(local_blocks.begin(), local_blocks.end(),
+                  [&cell_dofs_disp, &cell_map, &slave_cells](const auto dof)
+                  { slave_cells.push_back(cell_map[cell_dofs_disp[dof]]); });
   }
   assert(slave_cells.size() == local_blocks.size());
 
@@ -298,9 +297,11 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
 
   std::vector<std::int32_t> local_cell_collisions
       = find_local_collisions(mesh, tree, mapped_T);
+  dolfinx::common::Timer t0("~~Periodic: Local cell and eval basis");
   xt::xtensor<double, 3> tabulated_basis_values
       = dolfinx_mpc::evaluate_basis_functions(V, mapped_T,
                                               local_cell_collisions);
+  t0.stop();
   // Create output arrays
   std::vector<std::int32_t> slaves;
   slaves.reserve(slave_blocks.size() * bs);
@@ -616,7 +617,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
 } // namespace
 
 dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_geometrical(
-    std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
+    const std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
     const std::function<xt::xtensor<bool, 1>(const xt::xtensor<double, 2>&)>&
         indicator,
     const std::function<xt::xarray<double>(const xt::xtensor<double, 2>&)>&
@@ -636,7 +637,7 @@ dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_geometrical(
 };
 
 dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_geometrical(
-    std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
+    const std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
     const std::function<xt::xtensor<bool, 1>(const xt::xtensor<double, 2>&)>&
         indicator,
     const std::function<xt::xarray<double>(const xt::xtensor<double, 2>&)>&
@@ -648,6 +649,52 @@ dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_geometrical(
 {
   std::vector<std::int32_t> slave_blocks
       = dolfinx::fem::locate_dofs_geometrical(*V.get(), indicator);
+
+  // Remove blocks in Dirichlet bcs
+  std::vector<std::int32_t> reduced_blocks
+      = remove_bc_blocks<std::complex<double>>(V, slave_blocks, bcs);
+  return _create_periodic_condition<std::complex<double>>(
+      V, tcb::make_span(reduced_blocks), relation, scale);
+};
+
+dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_topological(
+    const std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
+    const std::shared_ptr<const dolfinx::mesh::MeshTags<std::int32_t>> meshtag,
+    const std::int32_t tag,
+    const std::function<xt::xarray<double>(const xt::xtensor<double, 2>&)>&
+        relation,
+    const std::vector<std::shared_ptr<const dolfinx::fem::DirichletBC<double>>>&
+        bcs,
+    double scale)
+{
+
+  std::vector<std::int32_t> entities = meshtag->find(tag);
+  std::vector<std::int32_t> slave_blocks
+      = dolfinx::fem::locate_dofs_topological(*V.get(), meshtag->dim(),
+                                              entities);
+  // Remove blocks in Dirichlet bcs
+  std::vector<std::int32_t> reduced_blocks
+      = remove_bc_blocks<double>(V, slave_blocks, bcs);
+  return _create_periodic_condition<double>(V, tcb::make_span(reduced_blocks),
+                                            relation, scale);
+};
+
+dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_topological(
+    const std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
+    const std::shared_ptr<const dolfinx::mesh::MeshTags<std::int32_t>> meshtag,
+    const std::int32_t tag,
+    const std::function<xt::xarray<double>(const xt::xtensor<double, 2>&)>&
+        relation,
+    const std::vector<
+        std::shared_ptr<const dolfinx::fem::DirichletBC<std::complex<double>>>>&
+        bcs,
+    double scale)
+{
+
+  std::vector<std::int32_t> entities = meshtag->find(tag);
+  std::vector<std::int32_t> slave_blocks
+      = dolfinx::fem::locate_dofs_topological(*V.get(), meshtag->dim(),
+                                              entities);
 
   // Remove blocks in Dirichlet bcs
   std::vector<std::int32_t> reduced_blocks

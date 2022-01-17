@@ -275,14 +275,14 @@ void mpc(py::module& m)
               xtl::span<const std::int32_t>(entities.data(), entities.size()));
         });
 
-  m.def("create_periodic_constraint",
-        [](std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
+  m.def("create_periodic_constraint_geometrical",
+        [](const std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
            const std::function<py::array_t<bool>(const py::array_t<double>&)>&
                indicator,
            const std::function<py::array_t<double>(const py::array_t<double>&)>&
                relation,
-           const std::vector<
-               std::shared_ptr<const dolfinx::fem::DirichletBC<double>>>& bcs,
+           const std::vector<std::shared_ptr<
+               const dolfinx::fem::DirichletBC<PetscScalar>>>& bcs,
            double scale)
         {
           auto _indicator
@@ -312,6 +312,33 @@ void mpc(py::module& m)
           };
           return dolfinx_mpc::create_periodic_condition_geometrical(
               V, _indicator, _relation, bcs, scale);
+        });
+
+  m.def("create_periodic_constraint_topological",
+        [](const std::shared_ptr<const dolfinx::fem::FunctionSpace>& V,
+           const std::shared_ptr<const dolfinx::mesh::MeshTags<std::int32_t>>&
+               meshtags,
+           const int dim,
+           const std::function<py::array_t<double>(const py::array_t<double>&)>&
+               relation,
+           const std::vector<std::shared_ptr<
+               const dolfinx::fem::DirichletBC<PetscScalar>>>& bcs,
+           double scale)
+        {
+          auto _relation =
+              [&relation](const xt::xtensor<double, 2>& x) -> xt::xarray<double>
+          {
+            auto strides = x.strides();
+            std::transform(strides.begin(), strides.end(), strides.begin(),
+                           [](auto s) { return s * sizeof(double); });
+            py::array_t _x(x.shape(), strides, x.data(), py::none());
+            py::array_t v = relation(_x);
+            std::vector<std::size_t> shape;
+            std::copy_n(v.shape(), v.ndim(), std::back_inserter(shape));
+            return xt::adapt(v.data(), shape);
+          };
+          return dolfinx_mpc::create_periodic_condition_topological(
+              V, meshtags, dim, _relation, bcs, scale);
         });
 }
 } // namespace dolfinx_mpc_wrappers

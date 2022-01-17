@@ -674,7 +674,7 @@ xt::xtensor<double, 3> dolfinx_mpc::evaluate_basis_functions(
       K.fill(0);
       pull_back_affine(X, coordinate_dofs, xt::view(J, 0, xt::all(), xt::all()),
                        xt::view(K, 0, xt::all(), xt::all()), xp);
-      detJ[0] = cmap.compute_jacobian_determinant(
+      detJ[0] = dolfinx::fem::CoordinateElement::compute_jacobian_determinant(
           xt::view(J, 0, xt::all(), xt::all()));
     }
     else
@@ -684,9 +684,12 @@ xt::xtensor<double, 3> dolfinx_mpc::evaluate_basis_functions(
       dphi = xt::view(phi, xt::range(1, tdim + 1), 0, xt::all(), 0);
       J.fill(0);
       auto _J = xt::view(J, 0, xt::all(), xt::all());
-      cmap.compute_jacobian(dphi, coordinate_dofs, _J);
-      cmap.compute_jacobian_inverse(_J, xt::view(K, 0, xt::all(), xt::all()));
-      detJ[0] = cmap.compute_jacobian_determinant(_J);
+      dolfinx::fem::CoordinateElement::compute_jacobian(dphi, coordinate_dofs,
+                                                        _J);
+      dolfinx::fem::CoordinateElement::compute_jacobian_inverse(
+          _J, xt::view(K, 0, xt::all(), xt::all()));
+      detJ[0]
+          = dolfinx::fem::CoordinateElement::compute_jacobian_determinant(_J);
     }
 
     // Compute basis on reference element
