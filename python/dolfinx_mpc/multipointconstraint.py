@@ -14,7 +14,7 @@ import dolfinx_mpc.cpp
 import dolfinx.fem as _fem
 import dolfinx.mesh as _mesh
 from .dictcondition import create_dictionary_constraint
-from .periodic_condition import create_periodic_condition_topological, create_periodic_condition_geometrical
+from .periodic_condition import create_periodic_condition_topological
 
 
 class MultiPointConstraint():

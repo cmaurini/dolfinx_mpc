@@ -12,7 +12,6 @@
 # SPDX-License-Identifier:    MIT
 
 
-from IPython import embed
 import dolfinx.fem as fem
 import dolfinx_mpc.utils
 import numpy as np
@@ -23,9 +22,9 @@ from dolfinx.mesh import create_unit_square, locate_entities_boundary
 from dolfinx_mpc import LinearProblem, MultiPointConstraint
 from mpi4py import MPI
 from petsc4py import PETSc
-from ufl import (SpatialCoordinate, TestFunction, TrialFunction, dx, exp, grad,
-                 inner, pi, sin, as_vector)
-from dolfinx import geometry
+from ufl import (SpatialCoordinate, TestFunction, TrialFunction, as_vector, dx,
+                 exp, grad, inner, pi, sin)
+
 # Get PETSc int and scalar types
 complex_mode = True if np.dtype(PETSc.ScalarType).kind == 'c' else False
 
