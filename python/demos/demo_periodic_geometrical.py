@@ -29,8 +29,8 @@ from ufl import (SpatialCoordinate, TestFunction, TrialFunction, as_vector, dx,
 complex_mode = True if np.dtype(PETSc.ScalarType).kind == 'c' else False
 
 # Create mesh and finite element
-NX = 100
-NY = 200
+NX = 50
+NY = 100
 mesh = create_unit_square(MPI.COMM_WORLD, NX, NY)
 V = fem.VectorFunctionSpace(mesh, ("CG", 1))
 

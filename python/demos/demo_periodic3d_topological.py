@@ -69,10 +69,11 @@ def demo_periodic3D(celltype):
         out_x[1] = x[1]
         out_x[2] = x[2]
         return out_x
-
-    with Timer("~Periodic: New init"):
         mpc = dolfinx_mpc.MultiPointConstraint(V)
-        mpc.create_periodic_constraint_topological(mt, 2, periodic_relation, bcs)
+    with Timer("~~Periodic: New init"):
+        mpc_data = dolfinx_mpc.cpp.mpc.create_periodic_constraint_topological(
+            V._cpp_object, mt, 2, periodic_relation, bcs, 1)
+    mpc.add_constraint_from_mpc_data(V, mpc_data)
         mpc.finalize()
 
     # Define variational problem

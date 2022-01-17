@@ -701,14 +701,12 @@ xt::xtensor<double, 3> dolfinx_mpc::evaluate_basis_functions(
         cell_info, cell_index, reference_value_size);
 
     // Push basis forward to physical element
-    for (std::size_t i = 0; i < basis_values.shape(0); ++i)
-    {
-      auto _K = xt::view(K, i, xt::all(), xt::all());
-      auto _J = xt::view(J, i, xt::all(), xt::all());
-      auto _u = xt::view(basis_values, p, xt::all(), xt::all());
-      auto _U = xt::view(basis_reference_values, i, xt::all(), xt::all());
-      push_forward_fn(_u, _U, _J, detJ[i], _K);
-    }
+    auto _K = xt::view(K, (std::size_t)0, xt::all(), xt::all());
+    auto _J = xt::view(J, (std::size_t)0, xt::all(), xt::all());
+    auto _u = xt::view(basis_values, p, xt::all(), xt::all());
+    auto _U = xt::view(basis_reference_values, (std::size_t)0, xt::all(),
+                       xt::all());
+    push_forward_fn(_u, _U, _J, detJ[0], _K);
   }
   return basis_values;
 }
