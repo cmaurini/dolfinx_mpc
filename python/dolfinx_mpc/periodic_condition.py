@@ -22,17 +22,6 @@ def create_periodic_condition_topological(V: _fem.FunctionSpace, mt: _mesh.MeshT
     return _create_periodic_condition(V, slave_blocks, relation, bcs, scale)
 
 
-def create_periodic_condition_geometrical(V: _fem.FunctionSpace, indicator: Callable[[np.ndarray], np.ndarray],
-                                          relation: Callable[[np.ndarray], np.ndarray],
-                                          bcs: List[_fem.DirichletBCMetaClass], scale: _PETSc.ScalarType):
-    """
-    Create a periodic condition for all degrees of freedom's satisfying indicator(x):
-       u(x_i) = scale * u(relation(x_i)) for all x_i where indicator(x_i) == True
-    """
-    slave_blocks = _fem.locate_dofs_geometrical(V, indicator)
-    return _create_periodic_condition(V, slave_blocks, relation, bcs, scale)
-
-
 def _create_periodic_condition(V: _fem.FunctionSpace, slave_blocks: np.ndarray,
                                relation: Callable[[np.ndarray], np.ndarray],
                                bcs: List[_fem.DirichletBCMetaClass], scale: _PETSc.ScalarType):

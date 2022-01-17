@@ -15,6 +15,40 @@
 namespace
 {
 
+/// Given a mesh and corresponding bounding box tree and a set of points,check
+/// which cells (local to process) collide with each point.
+/// Return an array of the same size as the number of points, where the ith
+/// entry corresponds to the first cell colliding with the ith point.
+/// @note If no colliding point is found, the index -1 is returned.
+/// @param[in] mesh The mesh
+/// @param[in] tree The boundingbox tree of all cells (local to process) in the
+/// mesh
+/// @param[in] points The points to check collision with, shape (num_points, 3)
+std::vector<std::int32_t>
+find_local_collisions(std::shared_ptr<const dolfinx::mesh::Mesh>& mesh,
+                      dolfinx::geometry::BoundingBoxTree& tree,
+                      xt::xtensor<double, 2>& points)
+{
+  assert(points.shape(1) == 3);
+
+  // Compute collisions for each point with BoundingBoxTree
+  auto bbox_collisions = dolfinx::geometry::compute_collisions(tree, points);
+
+  // Compute exact collision
+  auto cell_collisions = dolfinx::geometry::compute_colliding_cells(
+      *mesh.get(), bbox_collisions, points);
+
+  // Extract first collision
+  std::vector<std::int32_t> collisions(points.shape(0), -1);
+  for (int i = 0; i < cell_collisions.num_nodes(); i++)
+  {
+    auto local_cells = cell_collisions.links(i);
+    if (!local_cells.empty())
+      collisions[i] = local_cells[0];
+  }
+  return collisions;
+}
+
 template <typename T>
 std::vector<std::int32_t> remove_bc_blocks(
     std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
@@ -175,6 +209,15 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
         relation,
     double scale)
 {
+  const std::size_t value_size
+      = V->element()->value_size() / V->element()->block_size();
+  if (value_size > 1)
+    throw std::runtime_error(
+        "Periodic conditions for vector valued spaces are not implemented");
+
+  // Tolerance for adding scaled basis values to MPC. Any scaled basis
+  // value with lower absolute value than the tolerance is ignored
+  const double tol = 1e-13;
 
   auto mesh = V->mesh();
   auto dofmap = V->dofmap();
@@ -234,41 +277,30 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   }
   assert(slave_cells.size() == local_blocks.size());
 
-  // Tabulate dof coordinates for each dof
-  xt::xtensor<double, 2> x
-      = tabulate_dof_coordinates(V, local_blocks, slave_cells);
-
-  dolfinx::common::Timer t8("~PERIODIC: Map");
-
-  // Compute master coordinates
-  auto mapped_x = relation(x);
-  auto mapped_T = xt::transpose(mapped_x);
-  t8.stop();
+  // Compute relation(slave_blocks)
+  xt::xtensor<double, 2> mapped_T({local_blocks.size(), 3});
+  {
+    // Tabulate dof coordinates for each dof
+    xt::xtensor<double, 2> x
+        = tabulate_dof_coordinates(V, local_blocks, slave_cells);
+    // Map all slave coordinates using the relation
+    auto mapped_x = relation(x);
+    mapped_T = xt::transpose(mapped_x);
+  }
 
   // Create bounding-box tree over owned cells
   std::vector<std::int32_t> r(num_cells_local);
   std::iota(r.begin(), r.end(), 0);
   dolfinx::geometry::BoundingBoxTree tree(*mesh.get(), tdim, r, 1e-15);
-  dolfinx::common::Timer t13("~PERIODIC: Global colls");
-  // Create process bounding box tree
   auto process_tree = tree.create_global_tree(mesh->comm());
-  // Compute process collisions with mapped coordinates
   auto colliding_bbox_processes
       = dolfinx::geometry::compute_collisions(process_tree, mapped_T);
-  t13.stop();
 
-  dolfinx::common::Timer t10("~PERIODIC: Local colls");
-
-  // Compute local collisions (and exact cell collisions) for each mapped
-  // coordinate
-  auto local_bbox_collisions
-      = dolfinx::geometry::compute_collisions(tree, mapped_T);
-  auto local_cell_collisions = dolfinx::geometry::compute_colliding_cells(
-      *mesh.get(), local_bbox_collisions, mapped_T);
-  t10.stop();
-
-  dolfinx::common::Timer t3("~PERIODIC: after tabulate dofs->masters");
-
+  std::vector<std::int32_t> local_cell_collisions
+      = find_local_collisions(mesh, tree, mapped_T);
+  xt::xtensor<double, 3> tabulated_basis_values
+      = dolfinx_mpc::evaluate_basis_functions(V, mapped_T,
+                                              local_cell_collisions);
   // Create output arrays
   std::vector<std::int32_t> slaves;
   slaves.reserve(slave_blocks.size() * bs);
@@ -286,47 +318,44 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   // Temporary array holding global indices
   std::vector<std::int64_t> global_blocks;
 
-  // Create counter for blocks that will be sent to other processes
-  const int gdim = mesh->geometry().dim();
   const int rank = dolfinx::MPI::rank(mesh->comm());
+  // Create counter for blocks that will be sent to other processes
   const int num_procs = dolfinx::MPI::size(mesh->comm());
   std::vector<std::int32_t> off_process_counter(num_procs, 0);
-  for (int i = 0; i < local_cell_collisions.num_nodes(); i++)
+  for (std::size_t i = 0; i < local_cell_collisions.size(); i++)
   {
-    auto local_cells = local_cell_collisions.links(i);
-    if (!local_cells.empty())
+    if (local_cell_collisions[i] != -1)
     {
       // Compute basis functions at mapped point
-      const std::int32_t cell = local_cells[0];
-      auto x_i = xt::view(mapped_T, i, xt::xrange(0, gdim));
+      const std::int32_t cell = local_cell_collisions[i];
+      auto basis_values
+          = xt::view(tabulated_basis_values, i, xt::all(), xt::all());
 
-      xt::xtensor<double, 2> basis_values = dolfinx_mpc::get_basis_functions(
-          V, xt::reshape_view(x_i, {1, gdim}), cell);
-
-      // Check if basis values are not zero, and add master, coeff and owner
-      // info for each dof in the block
+      // Map local dofs on master cell to global indices
       auto cell_blocks = dofmap->cell_dofs(cell);
       global_blocks.resize(cell_blocks.size());
       imap->local_to_global(cell_blocks, global_blocks);
-      for (int sb = 0; sb < bs; sb++)
+
+      // Check if basis values are not zero, and add master, coeff and owner
+      // info for each dof in the block
+      for (int b = 0; b < bs; b++)
       {
-        slaves.push_back(local_blocks[i] * bs + sb);
+        slaves.push_back(local_blocks[i] * bs + b);
         int num_masters = 0;
         for (std::size_t j = 0; j < cell_blocks.size(); j++)
         {
-          for (int b = 0; b < bs; b++)
+          const std::int32_t cell_block = cell_blocks[j];
+          // NOTE: Assuming 0 value size
+          if (const double val = scale * basis_values(j, 0);
+              std::abs(val) > tol)
           {
-            const double val = scale * basis_values(j * bs + b, sb);
-            if (std::abs(val) > 1e-16)
-            {
-              num_masters++;
-              masters.push_back(global_blocks[j] * bs + b);
-              coeffs.push_back(val);
-              if (cell_blocks[j] < size_local)
-                owners.push_back(rank);
-              else
-                owners.push_back(ghost_owners[cell_blocks[j] - size_local]);
-            }
+            num_masters++;
+            masters.push_back(global_blocks[j] * bs + b);
+            coeffs.push_back(val);
+            if (cell_block < size_local)
+              owners.push_back(rank);
+            else
+              owners.push_back(ghost_owners[cell_block - size_local]);
           }
         }
         num_masters_per_slave.push_back(num_masters);
@@ -344,8 +373,6 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       }
     }
   }
-  t3.stop();
-
   // Communicate s_to_m
   std::vector<std::int32_t> s_to_m_ranks;
   std::vector<std::int8_t> s_to_m_indicator(num_procs, 0);
@@ -404,17 +431,17 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   std::partial_sum(num_recv_slaves.begin(), num_recv_slaves.end(),
                    disp_in.begin() + 1);
 
-  // Array holding all dofs (index local to process) for coordinates sent out
+  // Array holding all dofs (index local to process) for coordinates sent
+  // out
   std::vector<std::int32_t> searching_dofs(bs * disp_out.back());
 
   // Communicate coordinates of slave blocks
   std::vector<std::int32_t> out_placement(outdegree, 0);
   xt::xtensor<double, 2> coords_out({(std::size_t)disp_out.back(), 3});
 
-  for (int i = 0; i < local_cell_collisions.num_nodes(); i++)
+  for (std::size_t i = 0; i < local_cell_collisions.size(); i++)
   {
-    auto local_cells = local_cell_collisions.links(i);
-    if (local_cells.empty())
+    if (local_cell_collisions[i] == -1)
     {
       auto procs = colliding_bbox_processes.links(i);
       for (auto proc : procs)
@@ -470,11 +497,11 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   std::vector<std::int32_t> num_masters_per_slave_remote;
   num_masters_per_slave_remote.reserve(bs * coords_recv.size() / 3);
 
-  // Compute local collisions with remote coordinates
-  auto remote_bbox_collisions
-      = dolfinx::geometry::compute_collisions(tree, coords_recv);
-  auto remote_cell_collisions = dolfinx::geometry::compute_colliding_cells(
-      *mesh.get(), remote_bbox_collisions, coords_recv);
+  std::vector<std::int32_t> remote_cell_collisions
+      = find_local_collisions(mesh, tree, coords_recv);
+  xt::xtensor<double, 3> remote_basis_values
+      = dolfinx_mpc::evaluate_basis_functions(V, coords_recv,
+                                              remote_cell_collisions);
 
   // Find remote masters and count how many to send to each process
   std::vector<std::int32_t> num_remote_masters(indegree, 0);
@@ -487,44 +514,39 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
 
     for (std::int32_t j = disp_in[i]; j < disp_in[i + 1]; j++)
     {
-      auto local_cells = remote_cell_collisions.links(j);
-      if (local_cells.empty())
+      if (const std::int32_t cell = remote_cell_collisions[j]; j == -1)
       {
-        for (int sb = 0; sb < bs; sb++)
+        for (int b = 0; b < bs; b++)
           num_masters_per_slave_remote.push_back(0);
       }
       else
       {
         // Compute basis functions at mapped point
-        const std::int32_t cell = local_cells[0];
-        auto x_j = xt::view(coords_recv, j, xt::xrange(0, gdim));
-        xt::xtensor<double, 2> basis_values = dolfinx_mpc::get_basis_functions(
-            V, xt::reshape_view(x_j, {1, gdim}), cell);
-
-        // Check if basis values are not zero, and add master, coeff and owner
-        // info for each dof in the block
+        // Check if basis values are not zero, and add master, coeff and
+        // owner info for each dof in the block
         auto cell_blocks = dofmap->cell_dofs(cell);
         global_blocks.resize(cell_blocks.size());
         imap->local_to_global(cell_blocks, global_blocks);
-        for (int sb = 0; sb < bs; sb++)
+        auto remote_basis
+            = xt::view(remote_basis_values, j, xt::all(), xt::all());
+
+        for (int b = 0; b < bs; b++)
         {
           int num_masters = 0;
           for (std::size_t k = 0; k < cell_blocks.size(); k++)
           {
-            for (int b = 0; b < bs; b++)
+            // NOTE: Assuming value_size 0
+            if (const double val = scale * remote_basis(k, 0);
+                std::abs(val) > tol)
             {
-              const double val = scale * basis_values(k * bs + b, sb);
-              if (std::abs(val) > 1e-13)
-              {
-                num_masters++;
-                masters_remote.push_back(global_blocks[k] * bs + b);
-                coeffs_remote.push_back(val);
-                if (cell_blocks[k] < size_local)
-                  owners_remote.push_back(rank);
-                else
-                  owners_remote.push_back(
-                      ghost_owners[cell_blocks[k] - size_local]);
-              }
+              num_masters++;
+              masters_remote.push_back(global_blocks[k] * bs + b);
+              coeffs_remote.push_back(val);
+              if (cell_blocks[k] < size_local)
+                owners_remote.push_back(rank);
+              else
+                owners_remote.push_back(
+                    ghost_owners[cell_blocks[k] - size_local]);
             }
           }
           r_masters += num_masters;
@@ -555,7 +577,6 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       recv_data, searching_dofs, slaves, masters, coeffs, owners,
       num_masters_per_slave, size_local, bs);
 
-  dolfinx::common::Timer t("~PERIODIC: New ghost distribution");
   // Distribute ghost data
   dolfinx_mpc::mpc_data ghost_data
       = dolfinx_mpc::distribute_ghost_data<PetscScalar>(
@@ -582,7 +603,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   std::vector<std::int32_t> offsets(num_masters_per_slave.size() + 1, 0);
   std::partial_sum(num_masters_per_slave.begin(), num_masters_per_slave.end(),
                    offsets.begin() + 1);
-  t.stop();
+
   dolfinx_mpc::mpc_data output;
   output.offsets = offsets;
   output.masters = masters;

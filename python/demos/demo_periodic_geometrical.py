@@ -5,17 +5,14 @@
 # on the unit square with homogeneous Dirichlet boundary conditions
 # at y = 0, 1 and periodic boundary conditions at x = 0, 1.
 #
-# Original implementation in DOLFIN by Kristian B. Oelgaard and Anders Logg
-# This implementation can be found at:
-# https://bitbucket.org/fenics-project/dolfin/src/master/python/demo/documented/periodic/demo_periodic.py
-#
-# Copyright (C) Jørgen S. Dokken 2020.
+# Copyright (C) Jørgen S. Dokken 2020-2022.
 #
 # This file is part of DOLFINX_MPCX.
 #
 # SPDX-License-Identifier:    MIT
 
 
+from IPython import embed
 import dolfinx.fem as fem
 import dolfinx_mpc.utils
 import numpy as np
@@ -28,13 +25,14 @@ from mpi4py import MPI
 from petsc4py import PETSc
 from ufl import (SpatialCoordinate, TestFunction, TrialFunction, dx, exp, grad,
                  inner, pi, sin, as_vector)
-
+from dolfinx import geometry
 # Get PETSc int and scalar types
 complex_mode = True if np.dtype(PETSc.ScalarType).kind == 'c' else False
 
 # Create mesh and finite element
-N = 100
-mesh = create_unit_square(MPI.COMM_WORLD, N, N)
+NX = 100
+NY = 200
+mesh = create_unit_square(MPI.COMM_WORLD, NX, NY)
 V = fem.VectorFunctionSpace(mesh, ("CG", 1))
 
 
@@ -45,7 +43,8 @@ def dirichletboundary(x):
 # Create Dirichlet boundary condition
 facets = locate_entities_boundary(mesh, 1, dirichletboundary)
 topological_dofs = fem.locate_dofs_topological(V, 1, facets)
-bc = fem.dirichletbc(np.array([0, 0], dtype=PETSc.ScalarType), topological_dofs, V)
+zero = np.array([0, 0], dtype=PETSc.ScalarType)
+bc = fem.dirichletbc(zero, topological_dofs, V)
 bcs = [bc]
 
 
@@ -61,12 +60,9 @@ def periodic_relation(x):
     return out_x
 
 
-mpc_data = dolfinx_mpc.cpp.mpc.create_periodic_constraint(
-    V._cpp_object, periodic_boundary, periodic_relation, [bc._cpp_object], 1)
-
 with Timer("~PERIODIC: Initialize MPC"):
     mpc = MultiPointConstraint(V)
-    mpc.add_constraint_from_mpc_data(V, mpc_data)
+    mpc.create_periodic_constraint_geometrical(periodic_boundary, periodic_relation, bcs)
     mpc.finalize()
 
 # Define variational problem
@@ -77,7 +73,7 @@ a = inner(grad(u), grad(v)) * dx
 x = SpatialCoordinate(mesh)
 dx_ = x[0] - 0.9
 dy_ = x[1] - 0.5
-f = as_vector((x[0] * sin(5.0 * pi * x[1]) + 1.0 * exp(-(dx_ * dx_ + dy_ * dy_) / 0.02), 0.1 * x[1]))
+f = as_vector((x[0] * sin(5.0 * pi * x[1]) + 1.0 * exp(-(dx_ * dx_ + dy_ * dy_) / 0.02), 0.3 * x[1]))
 
 rhs = inner(f, v) * dx
 

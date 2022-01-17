@@ -120,8 +120,7 @@ class MultiPointConstraint():
             self.V, meshtag, tag, relation, bcs, scale)
         self.add_constraint(self.V, slaves, masters, coeffs, owners, offsets)
 
-    def create_periodic_constraint_geometrical(self, V: _fem.FunctionSpace,
-                                               indicator: Callable[[numpy.ndarray], numpy.ndarray],
+    def create_periodic_constraint_geometrical(self, indicator: Callable[[numpy.ndarray], numpy.ndarray],
                                                relation: Callable[[numpy.ndarray], numpy.ndarray],
                                                bcs: List[_fem.DirichletBCMetaClass], scale: _PETSc.ScalarType = 1):
         """
@@ -140,9 +139,9 @@ class MultiPointConstraint():
         scale
             Float for scaling bc
         """
-        slaves, masters, coeffs, owners, offsets = create_periodic_condition_geometrical(
-            self.V, indicator, relation, bcs, scale)
-        self.add_constraint(self.V, slaves, masters, coeffs, owners, offsets)
+        mpc_data = dolfinx_mpc.cpp.mpc.create_periodic_constraint(
+            self.V._cpp_object, indicator, relation, bcs, 1)
+        self.add_constraint_from_mpc_data(self.V, mpc_data=mpc_data)
 
     def create_slip_constraint(self, facet_marker: tuple([_mesh.MeshTags, int]), v: _fem.Function,
                                sub_space: _fem.FunctionSpace = None, sub_map: numpy.ndarray = numpy.array([]),
