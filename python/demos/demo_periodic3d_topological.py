@@ -100,18 +100,6 @@ def demo_periodic3D(celltype):
     problem = LinearProblem(a, rhs, mpc, bcs, petsc_options=petsc_options)
     u_h = problem.solve()
 
-    # Write solution to file
-    if celltype == CellType.tetrahedron:
-        ext = "tet"
-    else:
-        ext = "hex"
-
-    mesh.name = "mesh_" + ext
-    u_h.name = "u_" + ext
-
-    out_periodic.write_mesh(mesh)
-    out_periodic.write_function(u_h, 0.0, f"Xdmf/Domain/Grid[@Name='{mesh.name}'][1]")
-
     # --------------------VERIFICATION-------------------------
     print("----Verification----")
     u_ = u_h.copy()
