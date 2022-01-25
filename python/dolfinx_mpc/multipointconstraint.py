@@ -14,7 +14,6 @@ import dolfinx_mpc.cpp
 import dolfinx.fem as _fem
 import dolfinx.mesh as _mesh
 from .dictcondition import create_dictionary_constraint
-from .periodic_condition import create_periodic_condition_topological
 
 
 class MultiPointConstraint():
@@ -116,9 +115,9 @@ class MultiPointConstraint():
         scale
             Float for scaling bc
         """
-        slaves, masters, coeffs, owners, offsets = create_periodic_condition_topological(
-            self.V, meshtag, tag, relation, bcs, scale)
-        self.add_constraint(self.V, slaves, masters, coeffs, owners, offsets)
+        mpc_data = dolfinx_mpc.cpp.mpc.create_periodic_constraint_topological(
+            self.V._cpp_object, meshtag, tag, relation, bcs, scale)
+        self.add_constraint_from_mpc_data(self.V, mpc_data=mpc_data)
 
     def create_periodic_constraint_geometrical(self, indicator: Callable[[numpy.ndarray], numpy.ndarray],
                                                relation: Callable[[numpy.ndarray], numpy.ndarray],

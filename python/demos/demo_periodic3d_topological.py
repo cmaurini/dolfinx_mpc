@@ -38,14 +38,14 @@ def demo_periodic3D(celltype):
     # Create mesh and finite element
     if celltype == CellType.tetrahedron:
         # Tet setup
-        N = 4
+        N = 6
         mesh = create_unit_cube(MPI.COMM_WORLD, N, N, N)
         V = fem.FunctionSpace(mesh, ("CG", 2))
     else:
         # Hex setup
         N = 12
         mesh = create_unit_cube(MPI.COMM_WORLD, N, N, N, CellType.hexahedron)
-        V = fem.FunctionSpace(mesh, ("CG", 1))
+        V = fem.FunctionSpace(mesh, ("CG", 3))
 
     def dirichletboundary(x):
         return np.logical_or(np.logical_or(np.isclose(x[1], 0), np.isclose(x[1], 1)),
@@ -69,12 +69,11 @@ def demo_periodic3D(celltype):
         out_x[1] = x[1]
         out_x[2] = x[2]
         return out_x
-        mpc = dolfinx_mpc.MultiPointConstraint(V)
+
+    mpc = dolfinx_mpc.MultiPointConstraint(V)
     with Timer("~~Periodic: New init"):
-        mpc_data = dolfinx_mpc.cpp.mpc.create_periodic_constraint_topological(
-            V._cpp_object, mt, 2, periodic_relation, bcs, 1)
-    mpc.add_constraint_from_mpc_data(V, mpc_data)
-        mpc.finalize()
+        mpc.create_periodic_constraint_topological(mt, 2, periodic_relation, bcs, 1)
+    mpc.finalize()
 
     # Define variational problem
     u = TrialFunction(V)
@@ -142,6 +141,6 @@ def demo_periodic3D(celltype):
 
 
 if __name__ == "__main__":
-    for celltype in [CellType.tetrahedron, CellType.hexahedron]:
+    for celltype in [CellType.hexahedron, CellType.tetrahedron]:
         demo_periodic3D(celltype)
     list_timings(MPI.COMM_WORLD, [TimingType.wall])
