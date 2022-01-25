@@ -580,7 +580,7 @@ xt::xtensor<double, 3> dolfinx_mpc::evaluate_basis_functions(
   // If the space has sub elements, concatenate the evaluations on the sub
   // elements
   if (const int num_sub_elements = element->num_sub_elements();
-      num_sub_elements > 1 and num_sub_elements != bs_element)
+      num_sub_elements > 1 && num_sub_elements != bs_element)
   {
     throw std::runtime_error("Function::eval is not supported for mixed "
                              "elements. Extract subspaces.");

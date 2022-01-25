@@ -363,7 +363,7 @@ dolfinx_mpc::mpc_data distribute_ghost_data(
       = imap->create_submap(blocks);
 
   // Build map from new index map to slave indices (unrolled)
-  std::vector<std::int32_t> parent_to_sub;
+  std::vector<std::size_t> parent_to_sub;
   parent_to_sub.reserve(slaves.size());
   std::vector<std::int32_t> slave_blocks;
   slave_blocks.reserve(slaves.size());
