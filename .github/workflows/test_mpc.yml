@@ -63,7 +63,7 @@ jobs:
         with:
           path: ./dolfinx
           repository: FEniCS/dolfinx
-          ref: main
+          ref: dokken/sparsity-diagonal-hotfix
 
       - name: Configure C++ (dolfinx)
         run: |
