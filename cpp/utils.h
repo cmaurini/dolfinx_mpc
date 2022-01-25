@@ -128,6 +128,14 @@ void build_standard_pattern(dolfinx::la::SparsityPattern& pattern,
   }
 }
 
+/// Create a map from dof blocks to one of the cells that contains the degree of
+/// freedom
+/// @param[in] V The function space
+/// @param[in] blocks The blocks (local to process) we want to map
+std::vector<std::int32_t>
+create_block_to_cell_map(const dolfinx::fem::FunctionSpace& V,
+                         tcb::span<const std::int32_t> blocks);
+
 /// Add sparsity pattern for multi-point constraints to existing
 /// sparsity pattern
 /// @param[in] a bi-linear form for the current variational problem

@@ -224,12 +224,6 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   const int size_local = imap->size_local();
   std::vector<std::int32_t> ghost_owners = imap->ghost_owner_rank();
 
-  // Get info about cells owned by the process
-  const int tdim = mesh->topology().dim();
-  auto cell_imap = mesh->topology().index_map(tdim);
-  const int num_cells_local = cell_imap->size_local();
-  const int num_ghost_cells = cell_imap->num_ghosts();
-
   // Only work with local blocks
   std::vector<std::int32_t> local_blocks;
   local_blocks.reserve(slave_blocks.size());
@@ -240,41 +234,9 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
                     local_blocks.push_back(block);
                 });
 
-  std::vector<std::int32_t> slave_cells;
-  slave_cells.reserve(local_blocks.size());
-  {
-    // Create block -> cells map
-
-    // Compute number of cells each dof is in
-    std::vector<std::int32_t> num_cells_per_dof(size_local
-                                                + ghost_owners.size());
-    for (std::int32_t i = 0; i < num_cells_local + num_ghost_cells; i++)
-    {
-      auto dofs = dofmap->cell_dofs(i);
-      for (auto dof : dofs)
-        num_cells_per_dof[dof]++;
-    }
-    std::vector<std::int32_t> cell_dofs_disp(num_cells_per_dof.size() + 1, 0);
-    std::partial_sum(num_cells_per_dof.begin(), num_cells_per_dof.end(),
-                     cell_dofs_disp.begin() + 1);
-    std::vector<std::int32_t> cell_map(cell_dofs_disp.back());
-    // Reuse num_cells_per_dof for insertion
-    std::fill(num_cells_per_dof.begin(), num_cells_per_dof.end(), 0);
-
-    // Create the block -> cells map
-    for (std::int32_t i = 0; i < num_cells_local + num_ghost_cells; i++)
-    {
-      auto dofs = dofmap->cell_dofs(i);
-      for (auto dof : dofs)
-        cell_map[cell_dofs_disp[dof] + num_cells_per_dof[dof]++] = i;
-    }
-
-    // Populate map from slaves to corresponding cell (choose first cell in map)
-    std::for_each(local_blocks.begin(), local_blocks.end(),
-                  [&cell_dofs_disp, &cell_map, &slave_cells](const auto dof)
-                  { slave_cells.push_back(cell_map[cell_dofs_disp[dof]]); });
-  }
-  assert(slave_cells.size() == local_blocks.size());
+  // Create map from slave dof blocks to a cell containing them
+  std::vector<std::int32_t> slave_cells
+      = dolfinx_mpc::create_block_to_cell_map(*V, local_blocks);
 
   // Compute relation(slave_blocks)
   xt::xtensor<double, 2> mapped_T({local_blocks.size(), 3});
@@ -286,6 +248,11 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
     auto mapped_x = relation(x);
     mapped_T = xt::transpose(mapped_x);
   }
+
+  // Get mesh info
+  const int tdim = mesh->topology().dim();
+  auto cell_imap = mesh->topology().index_map(tdim);
+  const int num_cells_local = cell_imap->size_local();
 
   // Create bounding-box tree over owned cells
   std::vector<std::int32_t> r(num_cells_local);

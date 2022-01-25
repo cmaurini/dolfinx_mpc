@@ -450,6 +450,56 @@ dolfinx::fem::Function<PetscScalar> dolfinx_mpc::create_normal_approximation(
   VecGhostUpdateEnd(n_vec.vec(), INSERT_VALUES, SCATTER_FORWARD);
   return nh;
 }
+//-----------------------------------------------------------------------------
+
+std::vector<std::int32_t>
+dolfinx_mpc::create_block_to_cell_map(const dolfinx::fem::FunctionSpace& V,
+                                      tcb::span<const std::int32_t> blocks)
+{
+  std::vector<std::int32_t> cells;
+  cells.reserve(blocks.size());
+  // Create block -> cells map
+
+  // Compute number of cells each dof is in
+  auto mesh = V.mesh();
+  auto dofmap = V.dofmap();
+  auto imap = dofmap->index_map;
+  const int size_local = imap->size_local();
+  std::vector<std::int32_t> ghost_owners = imap->ghost_owner_rank();
+  std::vector<std::int32_t> num_cells_per_dof(size_local + ghost_owners.size());
+
+  const int tdim = mesh->topology().dim();
+  auto cell_imap = mesh->topology().index_map(tdim);
+  const int num_cells_local = cell_imap->size_local();
+  const int num_ghost_cells = cell_imap->num_ghosts();
+  for (std::int32_t i = 0; i < num_cells_local + num_ghost_cells; i++)
+  {
+    auto dofs = dofmap->cell_dofs(i);
+    for (auto dof : dofs)
+      num_cells_per_dof[dof]++;
+  }
+  std::vector<std::int32_t> cell_dofs_disp(num_cells_per_dof.size() + 1, 0);
+  std::partial_sum(num_cells_per_dof.begin(), num_cells_per_dof.end(),
+                   cell_dofs_disp.begin() + 1);
+  std::vector<std::int32_t> cell_map(cell_dofs_disp.back());
+  // Reuse num_cells_per_dof for insertion
+  std::fill(num_cells_per_dof.begin(), num_cells_per_dof.end(), 0);
+
+  // Create the block -> cells map
+  for (std::int32_t i = 0; i < num_cells_local + num_ghost_cells; i++)
+  {
+    auto dofs = dofmap->cell_dofs(i);
+    for (auto dof : dofs)
+      cell_map[cell_dofs_disp[dof] + num_cells_per_dof[dof]++] = i;
+  }
+
+  // Populate map from slaves to corresponding cell (choose first cell in map)
+  std::for_each(blocks.begin(), blocks.end(),
+                [&cell_dofs_disp, &cell_map, &cells](const auto dof)
+                { cells.push_back(cell_map[cell_dofs_disp[dof]]); });
+  assert(cells.size() == blocks.size());
+  return cells;
+}
 
 //-----------------------------------------------------------------------------
 dolfinx::la::SparsityPattern dolfinx_mpc::create_sparsity_pattern(
