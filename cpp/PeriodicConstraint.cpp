@@ -365,7 +365,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
     else
     {
       // Count number of incoming blocks from other processes
-      auto procs = colliding_bbox_processes.links(i);
+      auto procs = colliding_bbox_processes.links((int)i);
       for (auto proc : procs)
       {
         if (rank == proc)
@@ -380,7 +380,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   std::vector<std::int32_t> num_out_slaves;
   for (int i = 0; i < num_procs; i++)
   {
-    if (off_process_counter[i] > 0 and i != rank)
+    if (off_process_counter[i] > 0 && i != rank)
     {
       s_to_m_indicator[i] = 1;
       s_to_m_ranks.push_back(i);
@@ -401,7 +401,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   // Slave block owners -> Process with possible masters
   std::vector<int> s_to_m_weights(s_to_m_ranks.size(), 1);
   std::vector<int> m_to_s_weights(m_to_s_ranks.size(), 1);
-  MPI_Comm slave_to_master = MPI_COMM_NULL;
+  auto slave_to_master = MPI_COMM_NULL;
   MPI_Dist_graph_create_adjacent(
       mesh->comm(), m_to_s_ranks.size(), m_to_s_ranks.data(),
       m_to_s_weights.data(), s_to_m_ranks.size(), s_to_m_ranks.data(),
