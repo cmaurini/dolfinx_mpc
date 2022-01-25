@@ -403,8 +403,8 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   std::vector<int> m_to_s_weights(m_to_s_ranks.size(), 1);
   auto slave_to_master = MPI_COMM_NULL;
   MPI_Dist_graph_create_adjacent(
-      mesh->comm(), m_to_s_ranks.size(), m_to_s_ranks.data(),
-      m_to_s_weights.data(), s_to_m_ranks.size(), s_to_m_ranks.data(),
+      mesh->comm(), (int)m_to_s_ranks.size(), m_to_s_ranks.data(),
+      m_to_s_weights.data(), (int)s_to_m_ranks.size(), s_to_m_ranks.data(),
       s_to_m_weights.data(), MPI_INFO_NULL, false, &slave_to_master);
 
   int indegree(-1);
@@ -444,7 +444,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   {
     if (local_cell_collisions[i] == -1)
     {
-      auto procs = colliding_bbox_processes.links(i);
+      auto procs = colliding_bbox_processes.links((int)i);
       for (auto proc : procs)
       {
         if (rank == proc)
@@ -560,10 +560,10 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
 
   // Create inverse communicator
   // Procs with possible masters -> slave block owners
-  MPI_Comm master_to_slave = MPI_COMM_NULL;
+  auto master_to_slave = MPI_COMM_NULL;
   MPI_Dist_graph_create_adjacent(
-      mesh->comm(), s_to_m_ranks.size(), s_to_m_ranks.data(),
-      s_to_m_weights.data(), m_to_s_ranks.size(), m_to_s_ranks.data(),
+      mesh->comm(), (int)s_to_m_ranks.size(), s_to_m_ranks.data(),
+      s_to_m_weights.data(), (int)m_to_s_ranks.size(), m_to_s_ranks.data(),
       m_to_s_weights.data(), MPI_INFO_NULL, false, &master_to_slave);
 
   // Send data back to owning process

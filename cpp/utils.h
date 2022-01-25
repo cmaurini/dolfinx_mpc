@@ -381,7 +381,7 @@ dolfinx_mpc::mpc_data distribute_ghost_data(
   }
 
   // Get communicator for owner->ghost
-  dolfinx::common::IndexMap& slave_to_ghost = compressed_map.first;
+  const dolfinx::common::IndexMap& slave_to_ghost = compressed_map.first;
   MPI_Comm local_to_ghost
       = slave_to_ghost.comm(dolfinx::common::IndexMap::Direction::forward);
   auto [src_ranks_ghosts, dest_ranks_ghosts]
@@ -526,14 +526,14 @@ dolfinx_mpc::mpc_data distribute_ghost_data(
   MPI_Wait(&ghost_requests[0], &ghost_status[0]);
   std::vector<std::int64_t> recv_block;
   recv_block.reserve(recv_slaves.size());
-  std::vector<std::int64_t> recv_rem;
+  std::vector<std::int32_t> recv_rem;
   recv_rem.reserve(recv_slaves.size());
   std::transform(recv_slaves.cbegin(), recv_slaves.cend(),
                  std::back_inserter(recv_block),
                  [bs, &recv_rem](const auto dof)
                  {
                    std::ldiv_t div = std::div(dof, (std::int64_t)bs);
-                   recv_rem.push_back(div.rem);
+                   recv_rem.push_back((std::int32_t)div.rem);
                    return div.quot;
                  });
   std::vector<std::int32_t> recv_local(recv_slaves.size());

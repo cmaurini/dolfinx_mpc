@@ -555,7 +555,7 @@ xt::xtensor<double, 3> dolfinx_mpc::evaluate_basis_functions(
   assert(mesh);
   const std::size_t gdim = mesh->geometry().dim();
   const std::size_t tdim = mesh->topology().dim();
-  auto map = mesh->topology().index_map(tdim);
+  auto map = mesh->topology().index_map((int)tdim);
 
   // Get geometry data
   const dolfinx::graph::AdjacencyList<std::int32_t>& x_dofmap
@@ -579,8 +579,8 @@ xt::xtensor<double, 3> dolfinx_mpc::evaluate_basis_functions(
 
   // If the space has sub elements, concatenate the evaluations on the sub
   // elements
-  const int num_sub_elements = element->num_sub_elements();
-  if (num_sub_elements > 1 and num_sub_elements != bs_element)
+  if (const int num_sub_elements = element->num_sub_elements();
+      num_sub_elements > 1 and num_sub_elements != bs_element)
   {
     throw std::runtime_error("Function::eval is not supported for mixed "
                              "elements. Extract subspaces.");
@@ -607,8 +607,8 @@ xt::xtensor<double, 3> dolfinx_mpc::evaluate_basis_functions(
   cmap.tabulate(1, X0, data);
   const xt::xtensor<double, 2> dphi_i
       = xt::view(data, xt::range(1, tdim + 1), 0, xt::all(), 0);
-  auto pull_back_affine = [dphi_i](auto&& X, const auto& cell_geometry,
-                                   auto&& J, auto&& K, const auto& x) mutable
+  auto pull_back_affine = [&dphi_i](auto&& X, const auto& cell_geometry,
+                                    auto&& J, auto&& K, const auto& x) mutable
   {
     dolfinx::fem::CoordinateElement::compute_jacobian(dphi_i, cell_geometry, J);
     dolfinx::fem::CoordinateElement::compute_jacobian_inverse(J, K);
@@ -706,7 +706,7 @@ xt::xtensor<double, 3> dolfinx_mpc::evaluate_basis_functions(
     apply_dof_transformation(
         xtl::span(basis_reference_values.data() + p * num_basis_values,
                   num_basis_values),
-        cell_info, cell_index, reference_value_size);
+        cell_info, cell_index, (int)reference_value_size);
 
     // Push basis forward to physical element
     auto _K = xt::view(K, p, xt::all(), xt::all());
