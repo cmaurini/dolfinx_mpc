@@ -93,7 +93,7 @@ mpc_data compute_master_contributions(
 
   assert(num_slaves_local == local_colliding_cell.size());
 
-  for (int i = 0; i < num_slaves_local; ++i)
+  for (std::size_t i = 0; i < num_slaves_local; ++i)
   {
     if (const std::int32_t cell = local_colliding_cell[i]; cell != -1)
     {
@@ -130,7 +130,7 @@ mpc_data compute_master_contributions(
 
   // Reuse num_masters_local for insertion
   std::fill(num_masters_local.begin(), num_masters_local.end(), 0);
-  for (int i = 0; i < (int)num_slaves_local; ++i)
+  for (std::size_t i = 0; i < num_slaves_local; ++i)
   {
     if (const std::int32_t cell = local_colliding_cell[i]; cell != -1)
     {
