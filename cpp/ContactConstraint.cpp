@@ -106,7 +106,7 @@ mpc_data compute_master_contributions(
         for (int b = 0; b < bs; b++)
         {
           // NOTE: Assuming 0 value size
-          if (const double val
+          if (const PetscScalar val
               = normals(i, b) / normals(i, local_rems[i]) * basis_values(j, 0);
               std::abs(val) > tol)
           {
@@ -151,21 +151,14 @@ mpc_data compute_master_contributions(
               = normals(i, b) / normals(i, local_rems[i]) * basis_values(j, 0);
               std::abs(val) > tol)
           {
-            masters_other_side[masters_offsets[i] + num_masters_local[i]]
-                = global_blocks[j] * block_size + b;
-            coefficients_other_side[masters_offsets[i] + num_masters_local[i]]
-                = val;
-            // If master dof owned by other process find owner
-            if (cell_block < size_local)
-            {
-              owners_other_side[masters_offsets[i] + num_masters_local[i]]
-                  = rank;
-            }
-            else
-            {
-              owners_other_side[masters_offsets[i] + num_masters_local[i]]
-                  = ghost_owners[cell_block - size_local];
-            }
+            const std::int32_t m_pos
+                = masters_offsets[i] + num_masters_local[i];
+            masters_other_side[m_pos] = global_blocks[j] * block_size + b;
+            coefficients_other_side[m_pos] = val;
+            owners_other_side[m_pos]
+                = cell_block < size_local
+                      ? rank
+                      : ghost_owners[cell_block - size_local];
             num_masters_local[i]++;
           }
         }
@@ -684,8 +677,8 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
           = remote_colliding_offsets[inc_disp_offsets[i] + c];
       const std::int32_t slave_max
           = remote_colliding_offsets[inc_disp_offsets[i] + c + 1];
-      const std::int32_t num_inc = slave_max - slave_min;
-      if (!(slave_found[c]) && (num_inc > 0))
+      if (const std::int32_t num_inc = slave_max - slave_min;
+          !(slave_found[c]) && (num_inc > 0))
       {
         slave_found[c] = true;
         num_inc_masters[c] = num_inc;
@@ -1252,15 +1245,16 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
         {
           for (std::int32_t block = 0; block < block_size; ++block)
           {
-            const PetscScalar coeff = basis_values(k * block_size + block, j);
-            if (std::abs(coeff) > 1e-6)
+            if (const PetscScalar coeff
+                = basis_values(k * block_size + block, j);
+                std::abs(coeff) > 1e-6)
             {
               l_master[j].push_back(cell_blocks[k] * block_size + block);
               l_coeff[j].push_back(coeff);
-              if (cell_blocks[k] < size_local)
-                l_owner[j].push_back(rank);
-              else
-                l_owner[j].push_back(ghost_owners[cell_blocks[k] - size_local]);
+              l_owner[j].push_back(
+                  cell_blocks[k] < size_local
+                      ? rank
+                      : ghost_owners[cell_blocks[k] - size_local]);
             }
           }
         }
@@ -1454,18 +1448,16 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
           {
             for (std::int32_t block = 0; block < block_size; ++block)
             {
-              const PetscScalar coeff = basis_values(k * block_size + block, t);
-              if (std::abs(coeff) > 1e-6)
+              if (const PetscScalar coeff
+                  = basis_values(k * block_size + block, t);
+                  std::abs(coeff) > 1e-6)
               {
                 l_master[t].push_back(cell_blocks[k] * block_size + block);
                 l_coeff[t].push_back(coeff);
-                if (cell_blocks[k] < size_local)
-                  l_owner[t].push_back(rank);
-                else
-                {
-                  l_owner[t].push_back(
-                      ghost_owners[cell_blocks[k] - size_local]);
-                }
+                l_owner[t].push_back(
+                    cell_blocks[k] < size_local
+                        ? rank
+                        : ghost_owners[cell_blocks[k] - size_local]);
               }
             }
           }
