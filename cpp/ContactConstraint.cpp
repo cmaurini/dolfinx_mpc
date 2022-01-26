@@ -145,7 +145,7 @@ mpc_data compute_master_contributions(
         for (int b = 0; b < bs; b++)
         {
           // NOTE: Assuming 0 value size
-          if (const double val
+          if (const PetscScalar val
               = normals(i, b) / normals(i, local_rems[i]) * basis_values(j, 0);
               std::abs(val) > tol)
           {
