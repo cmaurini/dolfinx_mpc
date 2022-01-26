@@ -62,7 +62,6 @@ create_boundingbox_tree(const dolfinx::mesh::MeshTags<std::int32_t>& meshtags,
 /// @param[in] local_rems List containing which block each slave dof is in
 /// @param[in] local_colliding_cell List with one-to-one correspondes to a cell
 /// that the block is colliding with
-/// @param[in] slave_coordinates The coordinates of the slave dofs
 /// @param[in] normals The normals at each slave dofs
 /// @param[in] V the function space
 /// @param[in] tabulated_basis_valeus The basis values tabulated for the given
@@ -71,7 +70,6 @@ create_boundingbox_tree(const dolfinx::mesh::MeshTags<std::int32_t>& meshtags,
 mpc_data compute_master_contributions(
     const tcb::span<const std::int32_t>& local_rems,
     const tcb::span<const std::int32_t>& local_colliding_cell,
-    const xt::xtensor<double, 2>& slave_coordinates,
     const xt::xtensor<PetscScalar, 2>& normals,
     std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
     xt::xtensor<double, 3> tabulated_basis_values)
@@ -432,21 +430,25 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
   dolfinx::geometry::BoundingBoxTree bb_tree
       = create_boundingbox_tree(meshtags, fdim, master_marker);
 
+  // Compute contributions on other side local to process
+  mpc_data mpc_master_local;
+
   // Create map from slave dof blocks to a cell containing them
   std::vector<std::int32_t> slave_cells
       = dolfinx_mpc::create_block_to_cell_map(*V, local_slave_blocks);
   xt::xtensor<double, 2> slave_coordinates
       = xt::transpose(dolfinx_mpc::tabulate_dof_coordinates(
           *V, local_slave_blocks, slave_cells));
-  std::vector<std::int32_t> local_cell_collisions
-      = dolfinx_mpc::find_local_collisions(*mesh, bb_tree, slave_coordinates);
-  xt::xtensor<double, 3> tabulated_basis_values
-      = dolfinx_mpc::evaluate_basis_functions(V, slave_coordinates,
-                                              local_cell_collisions);
+  {
+    std::vector<std::int32_t> local_cell_collisions
+        = dolfinx_mpc::find_local_collisions(*mesh, bb_tree, slave_coordinates);
+    xt::xtensor<double, 3> tabulated_basis_values
+        = dolfinx_mpc::evaluate_basis_functions(V, slave_coordinates,
+                                                local_cell_collisions);
 
-  mpc_data mpc_master_local = compute_master_contributions(
-      local_rems, local_cell_collisions, slave_coordinates, normals, V,
-      tabulated_basis_values);
+    mpc_master_local = compute_master_contributions(
+        local_rems, local_cell_collisions, normals, V, tabulated_basis_values);
+  }
   // Find slave indices were contributions are not found on the process
   std::vector<std::int32_t>& l_offsets = mpc_master_local.offsets;
   std::vector<std::int32_t> slave_indices_remote;
@@ -558,7 +560,7 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
                                                 recv_slave_cells_collisions);
 
     remote_data = compute_master_contributions(
-        recv_rems, recv_slave_cells_collisions, slave_coords, slave_normals, V,
+        recv_rems, recv_slave_cells_collisions, slave_normals, V,
         recv_tabulated_basis_values);
   }
 

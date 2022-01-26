@@ -153,10 +153,9 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   std::vector<std::int32_t> off_process_counter(num_procs, 0);
   for (std::size_t i = 0; i < local_cell_collisions.size(); i++)
   {
-    if (local_cell_collisions[i] != -1)
+    if (const std::int32_t cell = local_cell_collisions[i]; cell != -1)
     {
       // Compute basis functions at mapped point
-      const std::int32_t cell = local_cell_collisions[i];
       auto basis_values
           = xt::view(tabulated_basis_values, i, xt::all(), xt::all());
 

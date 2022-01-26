@@ -406,7 +406,7 @@ dolfinx_mpc::mpc_data distribute_ghost_data(
   for (std::size_t i = 0; i < slaves.size(); ++i)
   {
     // Find ghost processes for the ith local slave
-    std::set<int> ghost_procs = shared_indices[parent_to_sub[i]];
+    std::set<int> ghost_procs = shared_indices[(std::int32_t)parent_to_sub[i]];
     for (auto proc : ghost_procs)
     {
       // Find index of process in local MPI communicator
@@ -458,7 +458,7 @@ dolfinx_mpc::mpc_data distribute_ghost_data(
   for (std::size_t i = 0; i < slaves.size(); ++i)
   {
     // Find ghost processes for the ith local slave
-    std::set<int> ghost_procs = shared_indices[parent_to_sub[i]];
+    std::set<int> ghost_procs = shared_indices[(std::int32_t)parent_to_sub[i]];
     const std::int32_t master_start = local_offsets[i];
     const std::int32_t master_end = local_offsets[i + 1];
     for (auto proc : ghost_procs)
