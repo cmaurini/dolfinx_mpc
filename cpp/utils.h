@@ -11,6 +11,7 @@
 #include <dolfinx/fem/Function.h>
 #include <dolfinx/fem/FunctionSpace.h>
 #include <dolfinx/fem/sparsitybuild.h>
+#include <dolfinx/geometry/BoundingBoxTree.h>
 #include <dolfinx/graph/AdjacencyList.h>
 #include <dolfinx/la/SparsityPattern.h>
 #include <dolfinx/la/petsc.h>
@@ -605,5 +606,32 @@ xt::xtensor<double, 3>
 evaluate_basis_functions(std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
                          const xt::xtensor<double, 2>& x,
                          const xtl::span<const std::int32_t>& cells);
+
+//-----------------------------------------------------------------------------
+/// Tabuilate dof coordinates (not unrolled for block size) for a set of points
+/// and corresponding cells.
+/// @param[in] V The function space
+/// @param[in] dofs Array of dofs (not unrolled with block size)
+/// @param[in] cells An array of cell indices. cells[i] is the index
+/// of a cell that contains dofs[i]
+/// @returns The dof coordinates, where the ith row corresponds to the ith dof
+xt::xtensor<double, 2>
+tabulate_dof_coordinates(const dolfinx::fem::FunctionSpace& V,
+                         tcb::span<const std::int32_t> dofs,
+                         tcb::span<const std::int32_t> cells);
+
+/// Given a mesh and corresponding bounding box tree and a set of points,check
+/// which cells (local to process) collide with each point.
+/// Return an array of the same size as the number of points, where the ith
+/// entry corresponds to the first cell colliding with the ith point.
+/// @note If no colliding point is found, the index -1 is returned.
+/// @param[in] mesh The mesh
+/// @param[in] tree The boundingbox tree of all cells (local to process) in the
+/// mesh
+/// @param[in] points The points to check collision with, shape (num_points, 3)
+std::vector<std::int32_t>
+find_local_collisions(const dolfinx::mesh::Mesh& mesh,
+                      const dolfinx::geometry::BoundingBoxTree& tree,
+                      const xt::xtensor<double, 2>& points);
 
 } // namespace dolfinx_mpc

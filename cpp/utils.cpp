@@ -5,6 +5,7 @@
 // SPDX-License-Identifier:    MIT
 
 #include "utils.h"
+#include <dolfinx/geometry/utils.h>
 #include <dolfinx/mesh/Mesh.h>
 #include <dolfinx/mesh/utils.h>
 #include <xtensor/xcomplex.hpp>
@@ -767,4 +768,135 @@ xt::xtensor<double, 3> dolfinx_mpc::evaluate_basis_functions(
     push_forward_fn(_u, _U, _J, detJ[p], _K);
   }
   return basis_values;
+}
+
+//-----------------------------------------------------------------------------
+xt::xtensor<double, 2>
+dolfinx_mpc::tabulate_dof_coordinates(const dolfinx::fem::FunctionSpace& V,
+                                      tcb::span<const std::int32_t> dofs,
+                                      tcb::span<const std::int32_t> cells)
+{
+  if (!V.component().empty())
+  {
+    throw std::runtime_error("Cannot tabulate coordinates for a "
+                             "FunctionSpace that is a subspace.");
+  }
+  auto element = V.element();
+  assert(element);
+  if (V.element()->is_mixed())
+  {
+    throw std::runtime_error(
+        "Cannot tabulate coordinates for a mixed FunctionSpace.");
+  }
+
+  auto mesh = V.mesh();
+  assert(mesh);
+
+  const std::size_t gdim = mesh->geometry().dim();
+
+  // Get dofmap local size
+  auto dofmap = V.dofmap();
+  assert(dofmap);
+  std::shared_ptr<const dolfinx::common::IndexMap> index_map
+      = V.dofmap()->index_map;
+  assert(index_map);
+
+  const int element_block_size = element->block_size();
+  const std::size_t scalar_dofs
+      = element->space_dimension() / element_block_size;
+
+  // Get the dof coordinates on the reference element
+  if (!element->interpolation_ident())
+  {
+    throw std::runtime_error("Cannot evaluate dof coordinates - this element "
+                             "does not have pointwise evaluation.");
+  }
+  const xt::xtensor<double, 2>& X = element->interpolation_points();
+
+  // Get coordinate map
+  const dolfinx::fem::CoordinateElement& cmap = mesh->geometry().cmap();
+
+  // Prepare cell geometry
+  const dolfinx::graph::AdjacencyList<std::int32_t>& x_dofmap
+      = mesh->geometry().dofmap();
+  // FIXME: Add proper interface for num coordinate dofs
+  xtl::span<const double> x_g = mesh->geometry().x();
+  const std::size_t num_dofs_g = x_dofmap.num_links(0);
+
+  // Array to hold coordinates to return
+  const std::size_t shape_c0 = 3;
+  const std::size_t shape_c1 = dofs.size();
+  xt::xtensor<double, 2> coords = xt::zeros<double>({shape_c0, shape_c1});
+
+  // Loop over cells and tabulate dofs
+  xt::xtensor<double, 2> x = xt::zeros<double>({scalar_dofs, gdim});
+  xt::xtensor<double, 2> coordinate_dofs({num_dofs_g, gdim});
+
+  xtl::span<const std::uint32_t> cell_info;
+  if (element->needs_dof_transformations())
+  {
+    mesh->topology_mutable().create_entity_permutations();
+    cell_info = xtl::span(mesh->topology().get_cell_permutation_info());
+  }
+
+  const std::function<void(const xtl::span<double>&,
+                           const xtl::span<const std::uint32_t>&, std::int32_t,
+                           int)>
+      apply_dof_transformation
+      = element->get_dof_transformation_function<double>();
+
+  const xt::xtensor<double, 2> phi
+      = xt::view(cmap.tabulate(0, X), 0, xt::all(), xt::all(), 0);
+  for (std::size_t c = 0; c < cells.size(); ++c)
+  {
+    // Extract cell geometry
+    auto x_dofs = x_dofmap.links(cells[c]);
+    for (std::size_t i = 0; i < x_dofs.size(); ++i)
+    {
+      std::copy_n(std::next(x_g.begin(), 3 * x_dofs[i]), gdim,
+                  std::next(coordinate_dofs.begin(), i * gdim));
+    }
+
+    // Tabulate dof coordinates on cell
+    dolfinx::fem::CoordinateElement::push_forward(x, coordinate_dofs, phi);
+    apply_dof_transformation(xtl::span(x.data(), x.size()),
+                             xtl::span(cell_info.data(), cell_info.size()),
+                             (std::int32_t)c, (int)x.shape(1));
+
+    // Get cell dofmap
+    auto cell_dofs = dofmap->cell_dofs(cells[c]);
+    auto it = std::find(cell_dofs.begin(), cell_dofs.end(), dofs[c]);
+    auto loc = std::distance(cell_dofs.begin(), it);
+
+    // Copy dof coordinates into vector
+    for (std::size_t j = 0; j < gdim; ++j)
+      coords(j, c) = x(loc, j);
+  }
+
+  return coords;
+}
+//-----------------------------------------------------------------------------
+std::vector<std::int32_t> dolfinx_mpc::find_local_collisions(
+    const dolfinx::mesh::Mesh& mesh,
+    const dolfinx::geometry::BoundingBoxTree& tree,
+    const xt::xtensor<double, 2>& points)
+{
+  assert(points.shape(1) == 3);
+
+  // Compute collisions for each point with BoundingBoxTree
+  auto bbox_collisions = dolfinx::geometry::compute_collisions(tree, points);
+
+  // Compute exact collision
+  auto cell_collisions = dolfinx::geometry::compute_colliding_cells(
+      mesh, bbox_collisions, points);
+
+  // Extract first collision
+  std::vector<std::int32_t> collisions(points.shape(0), -1);
+  for (int i = 0; i < cell_collisions.num_nodes(); i++)
+  {
+    auto local_cells = cell_collisions.links(i);
+    if (!local_cells.empty())
+      collisions[i] = local_cells[0];
+  }
+  return collisions;
 }
