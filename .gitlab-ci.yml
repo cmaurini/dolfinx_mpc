@@ -70,8 +70,9 @@ run-demos:
     - python3 -m pip install git+https://github.com/FEniCS/ufl.git
     - python3 -m pip install git+https://github.com/FEniCS/ffcx.git
     - git clone https://github.com/fenics/dolfinx.git
+    - cd dolfinx
     - git checkout ${DOLFINX_BRANCH}
-    - cmake -G Ninja -DCMAKE_BUILD_TYPE="Release" -B build-dolfinx -S ./dolfinx/cpp/
+    - cmake -G Ninja -DCMAKE_BUILD_TYPE="Release" -B build-dolfinx -S ./cpp/
     - cmake --build build-dolfinx
     - cmake --install build-dolfinx
     - BUILD_TYPE="Release" python3 -m pip -v install ./dolfinx/python/
