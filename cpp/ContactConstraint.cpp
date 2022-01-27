@@ -443,7 +443,7 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
     std::vector<std::int32_t> local_cell_collisions
         = dolfinx_mpc::find_local_collisions(*mesh, bb_tree, slave_coordinates);
     xt::xtensor<double, 3> tabulated_basis_values
-        = dolfinx_mpc::evaluate_basis_functions(V, slave_coordinates,
+        = dolfinx_mpc::evaluate_basis_functions(*V, slave_coordinates,
                                                 local_cell_collisions);
 
     mpc_master_local = compute_master_contributions(
@@ -556,7 +556,7 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
     std::vector<std::int32_t> recv_slave_cells_collisions
         = dolfinx_mpc::find_local_collisions(*mesh, bb_tree, slave_coords);
     xt::xtensor<double, 3> recv_tabulated_basis_values
-        = dolfinx_mpc::evaluate_basis_functions(V, slave_coords,
+        = dolfinx_mpc::evaluate_basis_functions(*V, slave_coords,
                                                 recv_slave_cells_collisions);
 
     remote_data = compute_master_contributions(

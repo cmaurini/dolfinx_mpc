@@ -93,7 +93,7 @@ class MultiPointConstraint():
         # Delete variables that are no longer required
         del (self._slaves, self._masters, self._coeffs, self._owners, self._offsets)
 
-    def create_periodic_constraint_topological(self, meshtag: _mesh.MeshTags, tag: int,
+    def create_periodic_constraint_topological(self, V: _fem.FunctionSpace, meshtag: _mesh.MeshTags, tag: int,
                                                relation: Callable[[numpy.ndarray], numpy.ndarray],
                                                bcs: list([_fem.DirichletBCMetaClass]), scale: _PETSc.ScalarType = 1):
         """
@@ -103,6 +103,8 @@ class MultiPointConstraint():
 
         Parameters
         ----------
+        V
+            The function space to assign the condition to. Should either be the space of the MPC or a sub space.
         meshtag
             MeshTag for entity to apply the periodic condition on
         tag
@@ -115,8 +117,14 @@ class MultiPointConstraint():
         scale
             Float for scaling bc
         """
-        mpc_data = dolfinx_mpc.cpp.mpc.create_periodic_constraint_topological(
-            self.V._cpp_object, meshtag, tag, relation, bcs, scale)
+        if (V.id == self.V.id):
+            mpc_data = dolfinx_mpc.cpp.mpc.create_periodic_constraint_topological(
+                self.V._cpp_object, meshtag, tag, relation, bcs, scale, False)
+        elif self.V.contains(V):
+            mpc_data = dolfinx_mpc.cpp.mpc.create_periodic_constraint_topological(
+                V._cpp_object, meshtag, tag, relation, bcs, scale, True)
+        else:
+            raise RuntimeError("The input space has to be a sub space (or the full space) of the MPC")
         self.add_constraint_from_mpc_data(self.V, mpc_data=mpc_data)
 
     def create_periodic_constraint_geometrical(self, indicator: Callable[[numpy.ndarray], numpy.ndarray],

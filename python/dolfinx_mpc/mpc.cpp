@@ -323,7 +323,7 @@ void mpc(py::module& m)
                relation,
            const std::vector<std::shared_ptr<
                const dolfinx::fem::DirichletBC<PetscScalar>>>& bcs,
-           double scale)
+           double scale, bool collapse)
         {
           auto _relation =
               [&relation](const xt::xtensor<double, 2>& x) -> xt::xarray<double>
@@ -338,7 +338,7 @@ void mpc(py::module& m)
             return xt::adapt(v.data(), shape);
           };
           return dolfinx_mpc::create_periodic_condition_topological(
-              V, meshtags, dim, _relation, bcs, scale);
+              V, meshtags, dim, _relation, bcs, scale, collapse);
         });
 }
 } // namespace dolfinx_mpc_wrappers

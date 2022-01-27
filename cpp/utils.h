@@ -603,7 +603,7 @@ dolfinx_mpc::mpc_data distribute_ghost_data(
 /// @returns basis values (not unrolled for block size) for each point. shape
 /// (num_points, number_of_dofs, value_size)
 xt::xtensor<double, 3>
-evaluate_basis_functions(std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
+evaluate_basis_functions(const dolfinx::fem::FunctionSpace& V,
                          const xt::xtensor<double, 2>& x,
                          const xtl::span<const std::int32_t>& cells);
 
