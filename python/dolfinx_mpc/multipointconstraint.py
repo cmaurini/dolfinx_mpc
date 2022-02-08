@@ -127,7 +127,8 @@ class MultiPointConstraint():
             raise RuntimeError("The input space has to be a sub space (or the full space) of the MPC")
         self.add_constraint_from_mpc_data(self.V, mpc_data=mpc_data)
 
-    def create_periodic_constraint_geometrical(self, V: _fem.FunctionSpace, indicator: Callable[[numpy.ndarray], numpy.ndarray],
+    def create_periodic_constraint_geometrical(self, V: _fem.FunctionSpace,
+                                               indicator: Callable[[numpy.ndarray], numpy.ndarray],
                                                relation: Callable[[numpy.ndarray], numpy.ndarray],
                                                bcs: List[_fem.DirichletBCMetaClass], scale: _PETSc.ScalarType = 1):
         """
