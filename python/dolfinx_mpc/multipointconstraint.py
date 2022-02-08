@@ -127,7 +127,7 @@ class MultiPointConstraint():
             raise RuntimeError("The input space has to be a sub space (or the full space) of the MPC")
         self.add_constraint_from_mpc_data(self.V, mpc_data=mpc_data)
 
-    def create_periodic_constraint_geometrical(self, indicator: Callable[[numpy.ndarray], numpy.ndarray],
+    def create_periodic_constraint_geometrical(self, V: _fem.FunctionSpace, indicator: Callable[[numpy.ndarray], numpy.ndarray],
                                                relation: Callable[[numpy.ndarray], numpy.ndarray],
                                                bcs: List[_fem.DirichletBCMetaClass], scale: _PETSc.ScalarType = 1):
         """
@@ -136,6 +136,8 @@ class MultiPointConstraint():
 
         Parameters
         ----------
+        V
+            The function space to assign the condition to. Should either be the space of the MPC or a sub space.
         indicator
             Lambda-function to locate degrees of freedom that should be slaves
         relation
@@ -146,8 +148,15 @@ class MultiPointConstraint():
         scale
             Float for scaling bc
         """
-        mpc_data = dolfinx_mpc.cpp.mpc.create_periodic_constraint_geometrical(
-            self.V._cpp_object, indicator, relation, bcs, 1)
+
+        if (V.id == self.V.id):
+            mpc_data = dolfinx_mpc.cpp.mpc.create_periodic_constraint_geometrical(
+                self.V._cpp_object, indicator, relation, bcs, scale, False)
+        elif self.V.contains(V):
+            mpc_data = dolfinx_mpc.cpp.mpc.create_periodic_constraint_geometrical(
+                V._cpp_object, indicator, relation, bcs, scale, True)
+        else:
+            raise RuntimeError("The input space has to be a sub space (or the full space) of the MPC")
         self.add_constraint_from_mpc_data(self.V, mpc_data=mpc_data)
 
     def create_slip_constraint(self, facet_marker: tuple([_mesh.MeshTags, int]), v: _fem.Function,

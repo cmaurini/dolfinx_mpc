@@ -38,14 +38,14 @@ def demo_periodic3D(celltype):
     # Create mesh and finite element
     if celltype == CellType.tetrahedron:
         # Tet setup
-        N = 5
+        N = 10
         mesh = create_unit_cube(MPI.COMM_WORLD, N, N, N)
         V = fem.VectorFunctionSpace(mesh, ("CG", 1))
     else:
         # Hex setup
         N = 10
         mesh = create_unit_cube(MPI.COMM_WORLD, N, N, N, CellType.hexahedron)
-        V = fem.FunctionSpace(mesh, ("CG", 2))
+        V = fem.VectorFunctionSpace(mesh, ("CG", 2))
 
     def dirichletboundary(x):
         return np.logical_or(np.logical_or(np.isclose(x[1], 0), np.isclose(x[1], 1)),
@@ -147,7 +147,6 @@ def demo_periodic3D(celltype):
 
 
 if __name__ == "__main__":
-    # for celltype in [CellType.hexahedron, CellType.tetrahedron]:
-    for celltype in [CellType.tetrahedron]:
+    for celltype in [CellType.hexahedron, CellType.tetrahedron]:
         demo_periodic3D(celltype)
     list_timings(MPI.COMM_WORLD, [TimingType.wall])

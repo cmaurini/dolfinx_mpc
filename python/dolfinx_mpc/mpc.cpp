@@ -199,8 +199,8 @@ void mpc(py::module& m)
         {
           dolfinx_mpc::assemble_matrix(
               dolfinx::la::petsc::Matrix::set_block_fn(A, ADD_VALUES),
-              dolfinx::la::petsc::Matrix::set_fn(A, ADD_VALUES), a, 
-              mpc0, mpc1, bcs, diagval);
+              dolfinx::la::petsc::Matrix::set_fn(A, ADD_VALUES), a, mpc0, mpc1,
+              bcs, diagval);
         });
   m.def(
       "assemble_vector",
@@ -300,7 +300,7 @@ void mpc(py::module& m)
                relation,
            const std::vector<std::shared_ptr<
                const dolfinx::fem::DirichletBC<PetscScalar>>>& bcs,
-           double scale)
+           double scale, bool collapse)
         {
           auto _indicator
               = [&indicator](
@@ -328,7 +328,7 @@ void mpc(py::module& m)
             return xt::adapt(v.data(), shape);
           };
           return dolfinx_mpc::create_periodic_condition_geometrical(
-              V, _indicator, _relation, bcs, scale);
+              V, _indicator, _relation, bcs, scale, collapse);
         });
 
   m.def("create_periodic_constraint_topological",
