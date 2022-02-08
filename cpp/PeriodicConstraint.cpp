@@ -464,7 +464,7 @@ dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_geometrical(
 
   return _create_periodic_condition<double>(*V, tcb::make_span(reduced_blocks),
                                             relation, scale);
-};
+}
 
 dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_geometrical(
     const std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
@@ -578,4 +578,4 @@ dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_topological(
 
   return _create_periodic_condition<std::complex<double>>(
       *V, tcb::make_span(reduced_blocks), relation, scale);
-};
+}
