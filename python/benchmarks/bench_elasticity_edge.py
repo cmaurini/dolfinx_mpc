@@ -64,7 +64,7 @@ def bench_elasticity_edge(tetra: bool = True, r_lvl: int = 0, out_hdf5=None, xdm
         periodic_mt = MeshTags(mesh, edim, edges, np.full(len(edges), 2, dtype=np.int32))
 
         mpc = MultiPointConstraint(V)
-        mpc.create_periodic_constraint_topological(periodic_mt, 2, periodic_relation, bcs, scale=0.5)
+        mpc.create_periodic_constraint_topological(V, periodic_mt, 2, periodic_relation, bcs, scale=0.5)
         mpc.finalize()
 
     # Create traction meshtag

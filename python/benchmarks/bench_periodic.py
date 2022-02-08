@@ -72,7 +72,7 @@ def demo_periodic3D(tetra, r_lvl=0, out_hdf5=None,
         facets = locate_entities_boundary(mesh, mesh.topology.dim - 1, PeriodicBoundary)
         mt = MeshTags(mesh, mesh.topology.dim - 1, facets, np.full(len(facets), 2, dtype=np.int32))
         mpc = MultiPointConstraint(V)
-        mpc.create_periodic_constraint_topological(mt, 2, periodic_relation, bcs)
+        mpc.create_periodic_constraint_topological(V, mt, 2, periodic_relation, bcs)
         mpc.finalize()
 
     # Define variational problem
