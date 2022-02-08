@@ -131,7 +131,7 @@ def EPS_get_spectrum(EPS: SLEPc.EPS,
 def solve_GEP_shiftinvert(A: PETSc.Mat, B: PETSc.Mat,
                           problem_type: SLEPc.EPS.ProblemType = SLEPc.EPS.ProblemType.GNHEP,
                           solver: SLEPc.EPS.Type = SLEPc.EPS.Type.KRYLOVSCHUR,
-                          nev: int = 10, tol: float = 1e-6, max_it: int = 10,
+                          nev: int = 10, tol: float = 1e-7, max_it: int = 10,
                           target: float = 0.0, shift: float = 0.0) -> SLEPc.EPS:
     """
     Solve generalized eigenvalue problem A*x=lambda*B*x using shift-and-invert
@@ -258,7 +258,7 @@ B = assemble_matrix(stiffness_form, mpc, bcs=bcs, diagval=diagval_B)
 Nev = 10  # number of requested eigenvalues
 EPS = solve_GEP_shiftinvert(A, B, problem_type=SLEPc.EPS.ProblemType.GHEP,
                             solver=SLEPc.EPS.Type.KRYLOVSCHUR,
-                            nev=Nev, tol=1e-6, max_it=10,
+                            nev=Nev, tol=1e-7, max_it=10,
                             target=1.5, shift=1.5)
 (eigval, eigvec_r, eigvec_i) = EPS_get_spectrum(EPS, mpc)
 
