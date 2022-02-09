@@ -267,20 +267,7 @@ void mpc(py::module& m)
       "Create a PETSc Mat for bilinear form.");
   m.def("create_contact_slip_condition",
         &dolfinx_mpc::create_contact_slip_condition);
-  m.def("create_slip_condition",
-        [](std::vector<std::shared_ptr<dolfinx::fem::FunctionSpace>> spaces,
-           dolfinx::mesh::MeshTags<std::int32_t> meshtags, std::int32_t marker,
-           std::shared_ptr<dolfinx::fem::Function<PetscScalar>> v,
-           py::array_t<std::int32_t, py::array::c_style> sub_map,
-           std::vector<
-               std::shared_ptr<const dolfinx::fem::DirichletBC<PetscScalar>>>
-               bcs)
-        {
-          return dolfinx_mpc::create_slip_condition(
-              spaces, meshtags, marker, v,
-              xtl::span<const std::int32_t>(sub_map.data(), sub_map.size()),
-              bcs);
-        });
+  m.def("create_slip_condition", &dolfinx_mpc::create_slip_condition);
   m.def("create_contact_inelastic_condition",
         &dolfinx_mpc::create_contact_inelastic_condition);
   m.def("create_normal_approximation",

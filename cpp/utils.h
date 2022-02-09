@@ -7,6 +7,7 @@
 #pragma once
 
 #include "MultiPointConstraint.h"
+#include <dolfinx/fem/DirichletBC.h>
 #include <dolfinx/fem/Form.h>
 #include <dolfinx/fem/Function.h>
 #include <dolfinx/fem/FunctionSpace.h>
@@ -641,5 +642,49 @@ std::vector<std::int32_t>
 find_local_collisions(const dolfinx::mesh::Mesh& mesh,
                       const dolfinx::geometry::BoundingBoxTree& tree,
                       const xt::xtensor<double, 2>& points);
+
+/// Given an input array of dofs from a function space, return an array with
+/// true/false if the degree of freedom is in a DirichletBC
+/// @param[in] V The function space
+/// @param[in] blocks The degrees of freedom (not unrolled for dofmap block
+/// size)
+/// @param[in] bcs List of Dirichlet BCs on V
+template <typename T>
+std::vector<std::int8_t> is_bc(
+    const dolfinx::fem::FunctionSpace& V, tcb::span<const std::int32_t> blocks,
+    const std::vector<std::shared_ptr<const dolfinx::fem::DirichletBC<T>>>& bcs)
+{
+  auto dofmap = V.dofmap();
+  assert(dofmap);
+  auto imap = dofmap->index_map;
+  assert(imap);
+  const int bs = dofmap->index_map_bs();
+  std::int32_t dim = bs * (imap->size_local() + imap->num_ghosts());
+  std::vector<std::int8_t> dof_marker(dim, false);
+  std::for_each(bcs.begin(), bcs.end(),
+                [&dof_marker, &V](auto bc)
+                {
+                  assert(bc);
+                  assert(bc->function_space());
+                  if (bc->function_space()->contains(V))
+                    bc->mark_dofs(dof_marker);
+                });
+  // Remove slave blocks contained in DirichletBC
+  std::vector<std::int8_t> bc_marker(blocks.size(), 0);
+  const int dofmap_bs = dofmap->bs();
+  for (std::size_t i = 0; i < blocks.size(); i++)
+  {
+    auto& block = blocks[i];
+    for (int j = 0; j < dofmap_bs; j++)
+    {
+      if (dof_marker[block * dofmap_bs + j])
+      {
+        bc_marker[i] = 1;
+        break;
+      }
+    }
+  }
+  return bc_marker;
+}
 
 } // namespace dolfinx_mpc
