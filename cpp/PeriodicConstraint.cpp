@@ -14,6 +14,17 @@
 namespace
 {
 
+/// Create a periodic MPC condition given a set of slave degrees of freedom
+/// (blocked wrt. the input function space)
+/// @param[in] V The input function space (possibly a collapsed sub space)
+/// @param[in] relation Function relating coordinates of the slave surface to
+/// the master surface
+/// @param[in] scale Scaling of the periodic condition
+/// @param[in] parent_map Map from collapsed space to parent space (Identity if
+/// not collapsed)
+/// @param[in] parent_space The parent space (The same space as V if not
+/// collapsed)
+/// @returns The multi point constraint
 template <typename T>
 dolfinx_mpc::mpc_data _create_periodic_condition(
     const dolfinx::fem::FunctionSpace& V, tcb::span<std::int32_t> slave_blocks,
@@ -33,13 +44,15 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   };
 
   // Map a list of parent dofs (local to process) to its global dof
-  auto parent_to_global = [&parent_space](const std::vector<std::int32_t>& dofs)
+  auto parent_dofmap = parent_space.dofmap();
+  auto parent_to_global
+      = [&parent_dofmap](const std::vector<std::int32_t>& dofs)
   {
     std::vector<std::int32_t> parent_blocks;
     std::vector<std::int32_t> parent_rems;
     parent_blocks.reserve(dofs.size());
     parent_rems.reserve(dofs.size());
-    const auto bs = (std::int32_t)parent_space.dofmap()->index_map_bs();
+    const auto bs = parent_dofmap->index_map_bs();
     // Split parent dofs into blocks and rems
     std::for_each(dofs.cbegin(), dofs.cend(),
                   [&parent_blocks, &parent_rems, &bs](auto dof)
@@ -50,8 +63,7 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
                   });
     // Map blocks to global index
     std::vector<std::int64_t> parents_glob(dofs.size());
-    parent_space.dofmap()->index_map->local_to_global(parent_blocks,
-                                                      parents_glob);
+    parent_dofmap->index_map->local_to_global(parent_blocks, parents_glob);
     // Unroll block size
     for (std::size_t i = 0; i < dofs.size(); i++)
       parents_glob[i] = parents_glob[i] * bs + parent_rems[i];
@@ -352,9 +364,9 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
 
         // Unroll local master dofs
         sub_dofs.resize(cell_blocks.size() * bs);
-        for (std::size_t j = 0; j < cell_blocks.size(); j++)
+        for (std::size_t k = 0; k < cell_blocks.size(); k++)
           for (int b = 0; b < bs; b++)
-            sub_dofs[j * bs + b] = cell_blocks[j] * bs + b;
+            sub_dofs[k * bs + b] = cell_blocks[k] * bs + b;
         auto parent_dofs = sub_to_parent(sub_dofs);
         auto global_parent_dofs = parent_to_global(parent_dofs);
 
@@ -448,120 +460,89 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   return output;
 }
 
-} // namespace
-
-dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_geometrical(
+/// Create a periodic MPC condition given a geometrical relation between the
+/// slave and master surface
+/// @param[in] V The input function space (possibly a sub space)
+/// @param[in] indicator Function marking tabulated degrees of freedom
+/// @param[in] relation Function relating coordinates of the slave surface to
+/// the master surface
+/// @param[in] bcs List of Dirichlet BCs on the input space
+/// @param[in] scale Scaling of the periodic condition
+/// @param[in] collapse If true, the list of marked dofs is in the collapsed
+/// input space
+/// @returns The multi point constraint
+template <typename T>
+dolfinx_mpc::mpc_data geometrical_condition(
     const std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
     const std::function<xt::xtensor<bool, 1>(const xt::xtensor<double, 2>&)>&
         indicator,
     const std::function<xt::xarray<double>(const xt::xtensor<double, 2>&)>&
         relation,
-    const std::vector<std::shared_ptr<const dolfinx::fem::DirichletBC<double>>>&
-        bcs,
+    const std::vector<std::shared_ptr<const dolfinx::fem::DirichletBC<T>>>& bcs,
     double scale, bool collapse)
 {
+  std::vector<std::int32_t> reduced_blocks;
   if (collapse)
   {
     // Locate dofs in sub and parent space
-    auto sub_space = V->collapse();
+    std::pair<dolfinx::fem::FunctionSpace, std::vector<int32_t>> sub_space
+        = V->collapse();
     const dolfinx::fem::FunctionSpace& V_sub = sub_space.first;
     const std::vector<std::int32_t>& parent_map = sub_space.second;
     std::array<std::vector<std::int32_t>, 2> slave_blocks
         = dolfinx::fem::locate_dofs_geometrical({*V.get(), V_sub}, indicator);
-
+    reduced_blocks.reserve(slave_blocks[0].size());
     // Remove blocks in Dirichlet bcs
     std::vector<std::int8_t> bc_marker
-        = dolfinx_mpc::is_bc<double>(*V, slave_blocks[0], bcs);
+        = dolfinx_mpc::is_bc<T>(*V, slave_blocks[0], bcs);
     std::vector<std::int32_t> reduced_blocks;
     for (std::size_t i = 0; i < bc_marker.size(); i++)
       if (!bc_marker[i])
         reduced_blocks.push_back(slave_blocks[1][i]);
     // Create sub space to parent map
-    const auto sub_map
+    auto sub_map
         = [&parent_map](const std::int32_t& i) { return parent_map[i]; };
-
-    return _create_periodic_condition<double>(
-        V_sub, tcb::make_span(reduced_blocks), relation, scale, sub_map, *V);
+    return _create_periodic_condition<T>(V_sub, tcb::make_span(reduced_blocks),
+                                         relation, scale, sub_map, *V);
   }
   else
   {
     std::vector<std::int32_t> slave_blocks
         = dolfinx::fem::locate_dofs_geometrical(*V, indicator);
-
+    reduced_blocks.reserve(slave_blocks.size());
     // Remove blocks in Dirichlet bcs
     std::vector<std::int8_t> bc_marker
-        = dolfinx_mpc::is_bc<double>(*V, slave_blocks, bcs);
-    std::vector<std::int32_t> reduced_blocks;
+        = dolfinx_mpc::is_bc<T>(*V, slave_blocks, bcs);
     for (std::size_t i = 0; i < bc_marker.size(); i++)
       if (!bc_marker[i])
         reduced_blocks.push_back(slave_blocks[i]);
-    // Identity map
-    const auto sub_map = [](const std::int32_t& dof) { return dof; };
-    return _create_periodic_condition<double>(
-        *V, tcb::make_span(reduced_blocks), relation, scale, sub_map, *V);
+    auto sub_map = [](const std::int32_t& dof) { return dof; };
+    return _create_periodic_condition<T>(*V, tcb::make_span(reduced_blocks),
+                                         relation, scale, sub_map, *V);
   }
 }
 
-dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_geometrical(
-    const std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
-    const std::function<xt::xtensor<bool, 1>(const xt::xtensor<double, 2>&)>&
-        indicator,
-    const std::function<xt::xarray<double>(const xt::xtensor<double, 2>&)>&
-        relation,
-    const std::vector<
-        std::shared_ptr<const dolfinx::fem::DirichletBC<std::complex<double>>>>&
-        bcs,
-    double scale, bool collapse)
-{
-  if (collapse)
-  {
-    // Locate dofs in sub and parent space
-    auto sub_space = V->collapse();
-    const dolfinx::fem::FunctionSpace& V_sub = sub_space.first;
-    const std::vector<std::int32_t>& parent_map = sub_space.second;
-    std::array<std::vector<std::int32_t>, 2> slave_blocks
-        = dolfinx::fem::locate_dofs_geometrical({*V.get(), V_sub}, indicator);
-
-    // Remove blocks in Dirichlet bcs
-    std::vector<std::int8_t> bc_marker
-        = dolfinx_mpc::is_bc<std::complex<double>>(*V, slave_blocks[0], bcs);
-    std::vector<std::int32_t> reduced_blocks;
-    for (std::size_t i = 0; i < bc_marker.size(); i++)
-      if (!bc_marker[i])
-        reduced_blocks.push_back(slave_blocks[1][i]);
-    // Create sub space to parent map
-    const auto sub_map
-        = [&parent_map](const std::int32_t& i) { return parent_map[i]; };
-    return _create_periodic_condition<std::complex<double>>(
-        V_sub, tcb::make_span(reduced_blocks), relation, scale, sub_map, *V);
-  }
-  else
-  {
-    std::vector<std::int32_t> slave_blocks
-        = dolfinx::fem::locate_dofs_geometrical(*V, indicator);
-
-    // Remove blocks in Dirichlet bcs
-    std::vector<std::int8_t> bc_marker
-        = dolfinx_mpc::is_bc<std::complex<double>>(*V, slave_blocks, bcs);
-    std::vector<std::int32_t> reduced_blocks;
-    for (std::size_t i = 0; i < bc_marker.size(); i++)
-      if (!bc_marker[i])
-        reduced_blocks.push_back(slave_blocks[i]);
-    // Identity map
-    const auto sub_map = [](const std::int32_t& dof) { return dof; };
-    return _create_periodic_condition<std::complex<double>>(
-        *V, tcb::make_span(reduced_blocks), relation, scale, sub_map, *V);
-  }
-}
-
-dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_topological(
+/// Create a periodic MPC on a given set of mesh entities, mapped to the master
+/// surface by a relation function.
+/// @param[in] V The input function space (possibly a sub space)
+/// @param[in] meshtag Meshtag with set of entities
+/// @param[in] tag The value of the mesh tag entities that should bec considered
+/// as entities
+/// @param[in] relation Function relating coordinates of the slave surface to
+/// the master surface
+/// @param[in] bcs List of Dirichlet BCs on the input space
+/// @param[in] scale Scaling of the periodic condition
+/// @param[in] collapse If true, the list of marked dofs is in the collapsed
+/// input space
+/// @returns The multi point constraint
+template <typename T>
+dolfinx_mpc::mpc_data topological_condition(
     const std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
     const std::shared_ptr<const dolfinx::mesh::MeshTags<std::int32_t>> meshtag,
     const std::int32_t tag,
     const std::function<xt::xarray<double>(const xt::xtensor<double, 2>&)>&
         relation,
-    const std::vector<std::shared_ptr<const dolfinx::fem::DirichletBC<double>>>&
-        bcs,
+    const std::vector<std::shared_ptr<const dolfinx::fem::DirichletBC<T>>>& bcs,
     double scale, bool collapse)
 {
 
@@ -578,7 +559,7 @@ dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_topological(
                                                 meshtag->dim(), entities);
     // Remove DirichletBC dofs from sub space
     std::vector<std::int8_t> bc_marker
-        = dolfinx_mpc::is_bc<double>(*V, slave_blocks[0], bcs);
+        = dolfinx_mpc::is_bc<T>(*V, slave_blocks[0], bcs);
     std::vector<std::int32_t> reduced_blocks;
     for (std::size_t i = 0; i < bc_marker.size(); i++)
       if (!bc_marker[i])
@@ -587,7 +568,7 @@ dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_topological(
     const auto sub_map
         = [&parent_map](const std::int32_t& i) { return parent_map[i]; };
     // Create mpc on sub space
-    dolfinx_mpc::mpc_data sub_data = _create_periodic_condition<double>(
+    dolfinx_mpc::mpc_data sub_data = _create_periodic_condition<T>(
         V_sub, tcb::make_span(reduced_blocks), relation, scale, sub_map, *V);
     return sub_data;
   }
@@ -597,7 +578,7 @@ dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_topological(
         = dolfinx::fem::locate_dofs_topological(*V.get(), meshtag->dim(),
                                                 entities);
     const std::vector<std::int8_t> bc_marker
-        = dolfinx_mpc::is_bc<double>(*V, slave_blocks, bcs);
+        = dolfinx_mpc::is_bc<TCB_SPAN_HAVE_CPP17>(*V, slave_blocks, bcs);
     std::vector<std::int32_t> reduced_blocks;
     for (std::size_t i = 0; i < bc_marker.size(); i++)
       if (!bc_marker[i])
@@ -605,9 +586,54 @@ dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_topological(
     // Identity map
     const auto sub_map = [](const std::int32_t& dof) { return dof; };
 
-    return _create_periodic_condition<double>(
-        *V, tcb::make_span(reduced_blocks), relation, scale, sub_map, *V);
+    return _create_periodic_condition<T>(*V, tcb::make_span(reduced_blocks),
+                                         relation, scale, sub_map, *V);
   }
+};
+
+} // namespace
+
+dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_geometrical(
+    const std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
+    const std::function<xt::xtensor<bool, 1>(const xt::xtensor<double, 2>&)>&
+        indicator,
+    const std::function<xt::xarray<double>(const xt::xtensor<double, 2>&)>&
+        relation,
+    const std::vector<std::shared_ptr<const dolfinx::fem::DirichletBC<double>>>&
+        bcs,
+    double scale, bool collapse)
+{
+  return geometrical_condition<double>(V, indicator, relation, bcs, scale,
+                                       collapse);
+}
+
+dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_geometrical(
+    const std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
+    const std::function<xt::xtensor<bool, 1>(const xt::xtensor<double, 2>&)>&
+        indicator,
+    const std::function<xt::xarray<double>(const xt::xtensor<double, 2>&)>&
+        relation,
+    const std::vector<
+        std::shared_ptr<const dolfinx::fem::DirichletBC<std::complex<double>>>>&
+        bcs,
+    double scale, bool collapse)
+{
+  return geometrical_condition<std::complex<double>>(V, indicator, relation,
+                                                     bcs, scale, collapse);
+}
+
+dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_topological(
+    const std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
+    const std::shared_ptr<const dolfinx::mesh::MeshTags<std::int32_t>> meshtag,
+    const std::int32_t tag,
+    const std::function<xt::xarray<double>(const xt::xtensor<double, 2>&)>&
+        relation,
+    const std::vector<std::shared_ptr<const dolfinx::fem::DirichletBC<double>>>&
+        bcs,
+    double scale, bool collapse)
+{
+  return topological_condition<double>(V, meshtag, tag, relation, bcs, scale,
+                                       collapse);
 };
 
 dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_topological(
@@ -621,48 +647,6 @@ dolfinx_mpc::mpc_data dolfinx_mpc::create_periodic_condition_topological(
         bcs,
     double scale, bool collapse)
 {
-
-  std::vector<std::int32_t> entities = meshtag->find(tag);
-
-  if (collapse)
-  {
-    // Locate dofs in sub and parent space
-    auto sub_space = V->collapse();
-    const dolfinx::fem::FunctionSpace& V_sub = sub_space.first;
-    const std::vector<std::int32_t>& parent_map = sub_space.second;
-    std::array<std::vector<std::int32_t>, 2> slave_blocks
-        = dolfinx::fem::locate_dofs_topological({*V.get(), V_sub},
-                                                meshtag->dim(), entities);
-    // Remove DirichletBC dofs from sub space
-    std::vector<std::int8_t> bc_marker
-        = dolfinx_mpc::is_bc<std::complex<double>>(*V, slave_blocks[0], bcs);
-    std::vector<std::int32_t> reduced_blocks;
-    for (std::size_t i = 0; i < bc_marker.size(); i++)
-      if (!bc_marker[i])
-        reduced_blocks.push_back(slave_blocks[1][i]);
-    // Create sub space to parent map
-    const auto sub_map
-        = [&parent_map](const std::int32_t& i) { return parent_map[i]; };
-    // Create mpc on sub space
-    dolfinx_mpc::mpc_data sub_data = _create_periodic_condition<double>(
-        V_sub, tcb::make_span(reduced_blocks), relation, scale, sub_map, *V);
-    return sub_data;
-  }
-  else
-  {
-    std::vector<std::int32_t> slave_blocks
-        = dolfinx::fem::locate_dofs_topological(*V.get(), meshtag->dim(),
-                                                entities);
-    const std::vector<std::int8_t> bc_marker
-        = dolfinx_mpc::is_bc<std::complex<double>>(*V, slave_blocks, bcs);
-    std::vector<std::int32_t> reduced_blocks;
-    for (std::size_t i = 0; i < bc_marker.size(); i++)
-      if (!bc_marker[i])
-        reduced_blocks.push_back(slave_blocks[i]);
-    // Identity map
-    const auto sub_map = [](const std::int32_t& dof) { return dof; };
-
-    return _create_periodic_condition<std::complex<double>>(
-        *V, tcb::make_span(reduced_blocks), relation, scale, sub_map, *V);
-  }
+  return topological_condition<std::complex<double>>(V, meshtag, tag, relation,
+                                                     bcs, scale, collapse);
 }
