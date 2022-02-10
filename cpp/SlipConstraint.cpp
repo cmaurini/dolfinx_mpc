@@ -148,7 +148,7 @@ mpc_data dolfinx_mpc::create_slip_condition(
     // Convert local parent dof to local parent block
     std::vector<std::int32_t> parent_blocks = parent_masters;
     std::for_each(parent_blocks.begin(), parent_blocks.end(),
-                  [W_bs](auto& block) { block /= W_bs; });
+                  [W_bs](auto& b) { b /= W_bs; });
     // Map blocks from local to global
     pair_m.resize(parent_masters.size());
     W_imap->local_to_global(parent_blocks, pair_m);

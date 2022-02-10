@@ -495,7 +495,6 @@ dolfinx_mpc::mpc_data geometrical_condition(
     // Remove blocks in Dirichlet bcs
     std::vector<std::int8_t> bc_marker
         = dolfinx_mpc::is_bc<T>(*V, slave_blocks[0], bcs);
-    std::vector<std::int32_t> reduced_blocks;
     for (std::size_t i = 0; i < bc_marker.size(); i++)
       if (!bc_marker[i])
         reduced_blocks.push_back(slave_blocks[1][i]);
@@ -551,7 +550,8 @@ dolfinx_mpc::mpc_data topological_condition(
   if (collapse)
   {
     // Locate dofs in sub and parent space
-    auto sub_space = V->collapse();
+    std::pair<dolfinx::fem::FunctionSpace, std::vector<int32_t>> sub_space
+        = V->collapse();
     const dolfinx::fem::FunctionSpace& V_sub = sub_space.first;
     const std::vector<std::int32_t>& parent_map = sub_space.second;
     std::array<std::vector<std::int32_t>, 2> slave_blocks
