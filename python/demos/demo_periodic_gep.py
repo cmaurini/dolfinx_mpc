@@ -225,7 +225,8 @@ def periodicboundary(x):
 
 
 facets = locate_entities_boundary(mesh, fdim, periodicboundary)
-mt = MeshTags(mesh, fdim, facets, np.full(len(facets), 2, dtype=np.int32))
+arg_sort = np.argsort(facets)
+mt = MeshTags(mesh, fdim, facets[arg_sort], np.full(len(facets), 2, dtype=np.int32))
 
 
 def periodic_relation(x):

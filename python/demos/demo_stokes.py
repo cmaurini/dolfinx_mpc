@@ -187,9 +187,9 @@ p = U.sub(1).collapse()
 u.name = "u"
 p.name = "p"
 
-with dolfinx.cpp.io.VTXWriter(mesh.comm, "demo_stokes_u.bp", [u._cpp_object]) as vtx:
+with dolfinx.cpp.io.VTXWriter(mesh.comm, "results/demo_stokes_u.bp", [u._cpp_object]) as vtx:
     vtx.write(0.0)
-with dolfinx.cpp.io.VTXWriter(mesh.comm, "demo_stokes_p.bp", [p._cpp_object]) as vtx:
+with dolfinx.cpp.io.VTXWriter(mesh.comm, "results/demo_stokes_p.bp", [p._cpp_object]) as vtx:
     vtx.write(0.0)
 
 # -------------------- Verification --------------------------------

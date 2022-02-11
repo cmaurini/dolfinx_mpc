@@ -546,14 +546,12 @@ dolfinx_mpc::mpc_data distribute_ghost_data(
   recv_block.reserve(recv_slaves.size());
   std::vector<std::int32_t> recv_rem;
   recv_rem.reserve(recv_slaves.size());
-  std::transform(recv_slaves.cbegin(), recv_slaves.cend(),
-                 std::back_inserter(recv_block),
-                 [bs, &recv_rem](const auto dof)
-                 {
-                   std::ldiv_t div = std::div(dof, (std::int64_t)bs);
-                   recv_rem.push_back((std::int32_t)div.rem);
-                   return div.quot;
-                 });
+  std::for_each(recv_slaves.cbegin(), recv_slaves.cend(),
+                [bs, &recv_rem, &recv_block](const auto dof)
+                {
+                  recv_rem.push_back(dof % bs);
+                  recv_block.push_back(dof / bs);
+                });
   std::vector<std::int32_t> recv_local(recv_slaves.size());
   imap->global_to_local(recv_block, recv_local);
   for (std::size_t i = 0; i < recv_local.size(); i++)

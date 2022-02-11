@@ -1029,18 +1029,8 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
   assert(recv_ghost_slaves.size() == ghost_slave_blocks.size());
 
   // Map input ghosts to local index
-  std::vector<std::int32_t> inc_ghosts(recv_ghost_slaves.size());
-  std::vector<std::int64_t> recv_block(recv_ghost_slaves.size());
-  std::vector<std::int32_t> recv_rem(recv_ghost_slaves.size());
-  for (std::size_t i = 0; i < inc_ghosts.size(); ++i)
-  {
-    std::ldiv_t div = std::ldiv(recv_ghost_slaves[i], block_size);
-    recv_block[i] = div.quot;
-    recv_rem[i] = std::int32_t(div.rem);
-  }
-  imap->global_to_local(recv_block, inc_ghosts);
-  for (std::size_t i = 0; i < inc_ghosts.size(); ++i)
-    inc_ghosts[i] = inc_ghosts[i] * block_size + recv_rem[i];
+  std::vector<std::int32_t> inc_ghosts
+      = dolfinx_mpc::map_dofs_global_to_local(V, recv_ghost_slaves);
 
   // Resize arrays to append ghosts
   const std::size_t num_local_slaves = local_slaves.size();
@@ -1955,26 +1945,12 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
     offsets.push_back(masters.size());
   }
 
-  // Map Ghost data
-
-  std::vector<std::int64_t> in_ghost_block(num_ghost_slaves);
-  std::vector<std::int64_t> in_ghost_rem(num_ghost_slaves);
-  for (std::int32_t i = 0; i < num_ghost_slaves; ++i)
-  {
-    const std::int64_t bs = block_size;
-    std::ldiv_t div = std::div(in_ghost_slaves[i], bs);
-    in_ghost_block[i] = div.quot;
-    in_ghost_rem[i] = div.rem;
-  }
-
-  std::vector<std::int32_t> in_ghost_block_loc(in_ghost_block.size());
-  imap->global_to_local(in_ghost_block, in_ghost_block_loc);
+  // Map ghosts to local data and copy into slave array
+  std::vector<std::int32_t> local_ghosts
+      = dolfinx_mpc::map_dofs_global_to_local(V, in_ghost_slaves);
   slaves.resize(num_loc_slaves + num_ghost_slaves);
-  for (std::int32_t i = 0; i < num_ghost_slaves; ++i)
-  {
-    slaves[num_loc_slaves + i]
-        = in_ghost_block_loc[i] * block_size + in_ghost_rem[i];
-  }
+  std::copy(local_ghosts.cbegin(), local_ghosts.cend(),
+            slaves.begin() + num_loc_slaves);
   mpc.slaves = slaves;
   mpc.masters = masters;
   mpc.offsets = offsets;

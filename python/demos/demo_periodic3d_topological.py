@@ -61,7 +61,8 @@ def demo_periodic3D(celltype):
         return np.isclose(x[0], 1)
 
     facets = locate_entities_boundary(mesh, mesh.topology.dim - 1, PeriodicBoundary)
-    mt = MeshTags(mesh, mesh.topology.dim - 1, facets, np.full(len(facets), 2, dtype=np.int32))
+    arg_sort = np.argsort(facets)
+    mt = MeshTags(mesh, mesh.topology.dim - 1, facets[arg_sort], np.full(len(facets), 2, dtype=np.int32))
 
     def periodic_relation(x):
         out_x = np.zeros(x.shape)
