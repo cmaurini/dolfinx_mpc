@@ -221,6 +221,8 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
       num_out_slaves.push_back(off_process_counter[i]);
     }
   }
+  // Push back to avoid null_ptr
+  num_out_slaves.push_back(0);
 
   std::vector<std::int8_t> indicator(num_procs);
   MPI_Alltoall(s_to_m_indicator.data(), 1, MPI_INT8_T, indicator.data(), 1,
@@ -250,12 +252,13 @@ dolfinx_mpc::mpc_data _create_periodic_condition(
   assert(outdegree == (int)s_to_m_ranks.size());
 
   // Compute number of receiving slaves
-  std::vector<std::int32_t> num_recv_slaves(indegree);
+  std::vector<std::int32_t> num_recv_slaves(indegree + 1);
   MPI_Neighbor_alltoall(
       num_out_slaves.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
       num_recv_slaves.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
       slave_to_master);
-
+  num_out_slaves.pop_back();
+  num_recv_slaves.pop_back();
   // Prepare data structures for sending information
   std::vector<int> disp_out(outdegree + 1, 0);
   std::partial_sum(num_out_slaves.begin(), num_out_slaves.end(),

@@ -500,11 +500,12 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
 
   // Figure out how much data to receive from each neighbor
   const std::size_t out_collision_slaves = slave_indices_remote.size();
-  std::vector<std::int32_t> num_slaves_recv(indegree);
+  std::vector<std::int32_t> num_slaves_recv(indegree + 1);
   MPI_Neighbor_allgather(
       &out_collision_slaves, 1, dolfinx::MPI::mpi_type<std::int32_t>(),
       num_slaves_recv.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
       neighborhood_comms[0]);
+  num_slaves_recv.pop_back();
 
   // Compute displacements for data to receive
   std::vector<int> disp(indegree + 1, 0);
@@ -834,7 +835,7 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
   std::map<std::int32_t, std::set<int>> shared_indices
       = slave_index_map->compute_shared_indices();
   std::vector<std::int32_t> out_num_slaves(num_out_proc, 0);
-  std::vector<std::int32_t> out_num_masters(num_out_proc, 0);
+  std::vector<std::int32_t> out_num_masters(num_out_proc + 1, 0);
   for (std::size_t i = 0; i < local_slaves.size(); ++i)
   {
     // Find ghost processes for the ith local slave
@@ -905,10 +906,14 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
       dolfinx::MPI::mpi_type<std::int64_t>(), slave_to_ghost, &slave_request);
 
   // Communicate number of incoming masters to each process owning the ghost
-  std::vector<int> inc_num_ghost_masters(num_inc_proc);
+  std::vector<int> inc_num_ghost_masters(num_inc_proc + 1);
   MPI_Neighbor_alltoall(out_num_masters.data(), 1, MPI_INT,
                         inc_num_ghost_masters.data(), 1, MPI_INT,
                         slave_to_ghost);
+  // To ensure that we have initalized the data pointer above each array is one
+  // longer than the number of procs
+  out_num_masters.pop_back();
+  inc_num_ghost_masters.pop_back();
 
   // Create incoming displacements for masters and coefficients
   std::vector<int> disp_inc_ghost_masters(num_inc_proc + 1, 0);
@@ -1355,11 +1360,12 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
 
   // Figure out how much data to receive from each neighbor
   const auto num_colliding_blocks = (int)blocks_wo_local_collision.size();
-  std::vector<std::int32_t> num_slave_blocks(indegree);
+  std::vector<std::int32_t> num_slave_blocks(indegree + 1);
   MPI_Neighbor_allgather(
       &num_colliding_blocks, 1, dolfinx::MPI::mpi_type<std::int32_t>(),
       num_slave_blocks.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
       neighborhood_comms[0]);
+  num_slave_blocks.pop_back();
 
   // Compute displacements for data to receive
   std::vector<int> disp(indegree + 1, 0);
@@ -1504,7 +1510,7 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
     }
   }
   // Flatten data structures before send/recv
-  std::vector<std::int32_t> num_found_slave_blocks(indegree);
+  std::vector<std::int32_t> num_found_slave_blocks(indegree + 1);
   for (std::int32_t i = 0; i < indegree; ++i)
     num_found_slave_blocks[i] = (std::int32_t)collision_slaves[i].size();
 
@@ -1519,12 +1525,13 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
 
   // Communicate number of incoming slaves and masters after coll
   // detection
-  std::vector<int> inc_num_found_slave_blocks(indegree_rev);
+  std::vector<int> inc_num_found_slave_blocks(indegree_rev + 1);
   MPI_Neighbor_alltoall(num_found_slave_blocks.data(), 1, MPI_INT,
                         inc_num_found_slave_blocks.data(), 1, MPI_INT,
                         neighborhood_comms[1]);
-
-  std::vector<std::int32_t> num_collision_masters(indegree);
+  inc_num_found_slave_blocks.pop_back();
+  num_found_slave_blocks.pop_back();
+  std::vector<std::int32_t> num_collision_masters(indegree + 1);
   std::vector<std::int64_t> found_slave_blocks;
   std::vector<std::int64_t> found_masters;
   std::vector<std::int32_t> offset_for_blocks;
@@ -1559,11 +1566,12 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
     }
   }
 
-  std::vector<int> num_inc_masters(indegree_rev);
+  std::vector<int> num_inc_masters(indegree_rev + 1);
   MPI_Neighbor_alltoall(num_collision_masters.data(), 1, MPI_INT,
                         num_inc_masters.data(), 1, MPI_INT,
                         neighborhood_comms[1]);
-
+  num_inc_masters.pop_back();
+  num_collision_masters.pop_back();
   // Create displacement vector for slaves and masters
   std::vector<int> disp_inc_slave_blocks(indegree_rev + 1, 0);
   std::partial_sum(inc_num_found_slave_blocks.begin(),
@@ -1737,7 +1745,7 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
       = slave_index_map->compute_shared_indices();
 
   std::vector<std::int32_t> out_num_slaves(dest_ranks_ghost.size(), 0);
-  std::vector<std::int32_t> out_num_masters(dest_ranks_ghost.size(), 0);
+  std::vector<std::int32_t> out_num_masters(dest_ranks_ghost.size() + 1, 0);
   // Create mappings from ghosted process to the data to recv
   // (can include repeats of data)
   std::map<std::int32_t, std::vector<std::int64_t>> proc_to_ghost;
@@ -1846,9 +1854,11 @@ mpc_data dolfinx_mpc::create_contact_inelastic_condition(
       slave_to_ghost);
 
   // Communicate size of communication of masters
-  std::vector<int> inc_num_masters(src_ranks_ghost.size());
+  std::vector<int> inc_num_masters(src_ranks_ghost.size() + 1);
   MPI_Neighbor_alltoall(out_num_masters.data(), 1, MPI_INT,
                         inc_num_masters.data(), 1, MPI_INT, slave_to_ghost);
+  inc_num_masters.pop_back();
+  out_num_masters.pop_back();
   // Send and receive the masters (the proc owning the master) and the
   // corresponding coeffs from the processor owning the slave
   std::vector<int> disp_recv_ghost_masters(src_ranks_ghost.size() + 1, 0);

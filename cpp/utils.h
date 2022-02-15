@@ -206,7 +206,7 @@ dolfinx::fem::FunctionSpace create_extended_functionspace(
 template <typename T>
 recv_data<T> send_master_data_to_owner(
     MPI_Comm& master_to_slave,
-    const std::vector<std::int32_t>& num_remote_masters,
+    std::vector<std::int32_t>& num_remote_masters,
     const std::vector<std::int32_t>& num_remote_slaves,
     const std::vector<std::int32_t>& num_incoming_slaves,
     const std::vector<std::int32_t>& num_masters_per_slave,
@@ -220,13 +220,15 @@ recv_data<T> send_master_data_to_owner(
                                  &weighted);
 
   // Communicate how many masters has been found on the other process
-  std::vector<std::int32_t> num_recv_masters(indegree);
+  std::vector<std::int32_t> num_recv_masters(indegree+1);
+  num_remote_masters.push_back(0);
   MPI_Request request_m;
   MPI_Ineighbor_alltoall(
       num_remote_masters.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
       num_recv_masters.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
       master_to_slave, &request_m);
-
+num_recv_masters.pop_back();
+num_remote_masters.pop_back();
   std::vector<std::int32_t> remote_slave_disp_out(outdegree + 1, 0);
   std::partial_sum(num_remote_slaves.begin(), num_remote_slaves.end(),
                    remote_slave_disp_out.begin() + 1);
@@ -410,8 +412,8 @@ dolfinx_mpc::mpc_data distribute_ghost_data(
       = slave_to_ghost.compute_shared_indices();
   const std::size_t num_inc_proc = src_ranks_ghosts.size();
   const std::size_t num_out_proc = dest_ranks_ghosts.size();
-  std::vector<std::int32_t> out_num_slaves(num_out_proc, 0);
-  std::vector<std::int32_t> out_num_masters(num_out_proc, 0);
+  std::vector<std::int32_t> out_num_slaves(num_out_proc+1, 0);
+  std::vector<std::int32_t> out_num_masters(num_out_proc+1, 0);
   for (std::size_t i = 0; i < slaves.size(); ++i)
   {
     // Find ghost processes for the ith local slave
@@ -428,17 +430,20 @@ dolfinx_mpc::mpc_data distribute_ghost_data(
   }
 
   // Communicate number of incoming slaves and masters
-  std::vector<int> in_num_slaves(num_inc_proc);
-  std::vector<int> in_num_masters(num_inc_proc);
+  std::vector<int> in_num_slaves(num_inc_proc+1);
+  std::vector<int> in_num_masters(num_inc_proc+1);
   std::array<MPI_Request, 2> requests;
   std::array<MPI_Status, 2> states;
   MPI_Ineighbor_alltoall(out_num_slaves.data(), 1, MPI_INT,
                          in_num_slaves.data(), 1, MPI_INT, local_to_ghost,
                          &requests[0]);
+  out_num_slaves.pop_back();
+  in_num_slaves.pop_back();
   MPI_Ineighbor_alltoall(out_num_masters.data(), 1, MPI_INT,
                          in_num_masters.data(), 1, MPI_INT, local_to_ghost,
                          &requests[1]);
-
+  out_num_masters.pop_back();
+  in_num_masters.pop_back();
   // Compute out displacements for slaves and masters
   std::vector<std::int32_t> disp_out_masters(num_out_proc + 1, 0);
   std::partial_sum(out_num_masters.begin(), out_num_masters.end(),
