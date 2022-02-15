@@ -576,7 +576,7 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
 
   // Count number of masters found on the process and convert the offsets to
   // be per process
-  std::vector<std::int32_t> num_collision_masters(indegree, 0);
+  std::vector<std::int32_t> num_collision_masters(indegree + 1, 0);
   std::vector<int> num_out_offsets;
   num_out_offsets.reserve(indegree);
   std::transform(num_slaves_recv.begin(), num_slaves_recv.end(),
@@ -598,10 +598,12 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
 
   // Communicate number of incoming masters to each process after collision
   // detection
-  std::vector<int> inc_num_collision_masters(indegree_rev);
+  std::vector<int> inc_num_collision_masters(indegree_rev + 1);
   MPI_Neighbor_alltoall(num_collision_masters.data(), 1, MPI_INT,
                         inc_num_collision_masters.data(), 1, MPI_INT,
                         neighborhood_comms[1]);
+  inc_num_collision_masters.pop_back();
+  num_collision_masters.pop_back();
 
   // Create displacement vector for masters and coefficients
   std::vector<int> disp_inc_masters(indegree_rev + 1, 0);
@@ -910,8 +912,8 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
   MPI_Neighbor_alltoall(out_num_masters.data(), 1, MPI_INT,
                         inc_num_ghost_masters.data(), 1, MPI_INT,
                         slave_to_ghost);
-  // To ensure that we have initalized the data pointer above each array is one
-  // longer than the number of procs
+  // To ensure that we have initalized the data pointer above each array is
+  // one longer than the number of procs
   out_num_masters.pop_back();
   inc_num_ghost_masters.pop_back();
 

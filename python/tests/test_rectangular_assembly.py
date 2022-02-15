@@ -33,9 +33,9 @@ def test_mixed_element(cell_type, ghost_mode):
         mesh, mesh.topology.dim - 1, lambda x: np.isclose(x[0], 0.0))
     other_facets = dolfinx.mesh.locate_entities_boundary(
         mesh, mesh.topology.dim - 1, lambda x: np.isclose(x[0], 1.0))
-
+    arg_sort = np.argsort(other_facets)
     mt = dolfinx.mesh.MeshTags(mesh, mesh.topology.dim - 1,
-                               other_facets, np.full_like(other_facets, 1))
+                               other_facets[arg_sort], np.full_like(other_facets, 1))
 
     # Rotate the mesh to induce more interesting slip BCs
     th = np.pi / 4.0
