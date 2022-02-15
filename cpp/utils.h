@@ -142,10 +142,10 @@ std::vector<std::int32_t>
 create_block_to_cell_map(const dolfinx::fem::FunctionSpace& V,
                          tcb::span<const std::int32_t> blocks);
 
-/// Add sparsity pattern for multi-point constraints to existing
-/// sparsity pattern
+/// Create sparsity pattern with multi point constraint additions to the rows
+/// and the columns
 /// @param[in] a bi-linear form for the current variational problem
-/// (The one used to generate input sparsity-pattern)
+/// (The one used to generate the standard sparsity-pattern)
 /// @param[in] mpc0 The multi point constraint to apply to the rows of the
 /// matrix.
 /// @param[in] mpc1 The multi point constraint to apply to the columns of the
@@ -167,14 +167,6 @@ typename U::value_type dot(const U& u, const V& v)
   assert(v.size() == 3);
   return u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
 }
-
-/// Given a list of global degrees of freedom, map them to their local index
-/// @param[in] V The original function space
-/// @param[in] global_dofs The list of dofs (global index)
-/// @returns List of local dofs
-std::vector<std::int32_t>
-map_dofs_global_to_local(std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
-                         std::vector<std::int64_t>& global_dofs);
 
 /// Create an function space with an extended index map, where all input dofs
 /// (global index) is added to the local index map as ghosts.
@@ -205,8 +197,7 @@ dolfinx::fem::FunctionSpace create_extended_functionspace(
 /// dofs (global indices), the coefficients and owners
 template <typename T>
 recv_data<T> send_master_data_to_owner(
-    MPI_Comm& master_to_slave,
-    std::vector<std::int32_t>& num_remote_masters,
+    MPI_Comm& master_to_slave, std::vector<std::int32_t>& num_remote_masters,
     const std::vector<std::int32_t>& num_remote_slaves,
     const std::vector<std::int32_t>& num_incoming_slaves,
     const std::vector<std::int32_t>& num_masters_per_slave,
@@ -220,15 +211,15 @@ recv_data<T> send_master_data_to_owner(
                                  &weighted);
 
   // Communicate how many masters has been found on the other process
-  std::vector<std::int32_t> num_recv_masters(indegree+1);
+  std::vector<std::int32_t> num_recv_masters(indegree + 1);
   num_remote_masters.push_back(0);
   MPI_Request request_m;
   MPI_Ineighbor_alltoall(
       num_remote_masters.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
       num_recv_masters.data(), 1, dolfinx::MPI::mpi_type<std::int32_t>(),
       master_to_slave, &request_m);
-num_recv_masters.pop_back();
-num_remote_masters.pop_back();
+  num_recv_masters.pop_back();
+  num_remote_masters.pop_back();
   std::vector<std::int32_t> remote_slave_disp_out(outdegree + 1, 0);
   std::partial_sum(num_remote_slaves.begin(), num_remote_slaves.end(),
                    remote_slave_disp_out.begin() + 1);
@@ -412,8 +403,8 @@ dolfinx_mpc::mpc_data distribute_ghost_data(
       = slave_to_ghost.compute_shared_indices();
   const std::size_t num_inc_proc = src_ranks_ghosts.size();
   const std::size_t num_out_proc = dest_ranks_ghosts.size();
-  std::vector<std::int32_t> out_num_slaves(num_out_proc+1, 0);
-  std::vector<std::int32_t> out_num_masters(num_out_proc+1, 0);
+  std::vector<std::int32_t> out_num_slaves(num_out_proc + 1, 0);
+  std::vector<std::int32_t> out_num_masters(num_out_proc + 1, 0);
   for (std::size_t i = 0; i < slaves.size(); ++i)
   {
     // Find ghost processes for the ith local slave
@@ -430,8 +421,8 @@ dolfinx_mpc::mpc_data distribute_ghost_data(
   }
 
   // Communicate number of incoming slaves and masters
-  std::vector<int> in_num_slaves(num_inc_proc+1);
-  std::vector<int> in_num_masters(num_inc_proc+1);
+  std::vector<int> in_num_slaves(num_inc_proc + 1);
+  std::vector<int> in_num_masters(num_inc_proc + 1);
   std::array<MPI_Request, 2> requests;
   std::array<MPI_Status, 2> states;
   MPI_Ineighbor_alltoall(out_num_slaves.data(), 1, MPI_INT,
