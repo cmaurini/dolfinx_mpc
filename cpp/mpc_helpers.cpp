@@ -98,7 +98,7 @@ dolfinx_mpc::create_cell_to_dofs_map(
 //-----------------------------------------------------------------------------
 std::vector<std::int32_t> dolfinx_mpc::map_dofs_global_to_local(
     std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
-    std::vector<std::int64_t>& global_dofs)
+    const std::vector<std::int64_t>& global_dofs)
 {
   const std::size_t num_dofs = global_dofs.size();
   const std::int32_t& block_size = V->dofmap()->index_map_bs();
@@ -127,7 +127,8 @@ std::vector<std::int32_t> dolfinx_mpc::map_dofs_global_to_local(
 //-----------------------------------------------------------------------------
 dolfinx::fem::FunctionSpace dolfinx_mpc::create_extended_functionspace(
     std::shared_ptr<const dolfinx::fem::FunctionSpace> V,
-    std::vector<std::int64_t>& global_dofs, std::vector<std::int32_t>& owners)
+    const std::vector<std::int64_t>& global_dofs,
+    const std::vector<std::int32_t>& owners)
 {
   dolfinx::common::Timer timer(
       "~MPC: Create new index map with additional ghosts");
