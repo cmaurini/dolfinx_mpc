@@ -771,7 +771,7 @@ xt::xtensor<double, 3> dolfinx_mpc::evaluate_basis_functions(
       detJ[p]
           = dolfinx::fem::CoordinateElement::compute_jacobian_determinant(_J);
     }
-    xt::row(X, p) = xt::row(_Xp, 9);
+    xt::row(X, p) = xt::row(_Xp, 0);
   }
 
   // Prepare basis function data structures
